@@ -1,0 +1,79 @@
+Metadata-Version: 2.4
+Name: safari-ai-tanzania
+Version: 0.1.0
+Summary: TANAPA knowledge assistant with hybrid retrieval, citations, and abstention.
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.115
+Requires-Dist: uvicorn>=0.32
+Requires-Dist: pydantic>=2.9
+Requires-Dist: python-multipart>=0.0.12
+Requires-Dist: httpx>=0.27
+Requires-Dist: pypdf>=5.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Provides-Extra: postgres
+Requires-Dist: psycopg[binary]>=3.2; extra == "postgres"
+
+# SafariAI Tanzania
+
+Phase 1 is a TANAPA knowledge assistant. It answers from an index, cites the record, prefers the document that is in force, and withholds a price or a rule when the index does not support it.
+
+The chatbot is the first interface. The work underneath is ingestion, structured parks, hybrid retrieval, and an evaluation set.
+
+## Run
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/pytest
+.venv/bin/uvicorn apps.api.main:app --reload
+```
+
+Open http://127.0.0.1:8000. Document upload is at http://127.0.0.1:8000/admin.
+
+```bash
+.venv/bin/python -m services.cli ask "How big is Ruaha National Park?"
+.venv/bin/python -m services.cli evaluate
+.venv/bin/python -m services.cli ingest path/to/tariff.pdf
+```
+
+Put a sidecar next to a PDF when you know the dates. See `docs/ingestion/metadata.example.json`.
+
+## What phase 1 will say
+
+Park area and year of establishment come from the 2024 TANAPA GIS map, stored as curated profiles in `knowledge/metadata/parks.json`. A wildlife week that excludes beaches returns a shortlist (Serengeti, Tarangire, Lake Manyara, and a fourth park) and points Ngorongoro to the NCAA, because Ngorongoro is not a TANAPA national park.
+
+Entry fees, child rates, camping, vehicles, seasons, species lists, and visa rules are withheld until a matching current document is in the index. A superseded tariff can sit in the index for audit. Its amount is not quoted as the price to pay. Official fee rows are the only amounts the assistant will state.
+
+## Layout
+
+```text
+apps/api          FastAPI
+apps/web          Visitor assistant
+apps/admin        Document upload
+services/         Ingestion, retrieval, ranking, generation, evaluation
+knowledge/        Source registry and park catalog
+evaluation/       Questions to score against the index
+infrastructure/   Docker and PostgreSQL
+```
+
+`SAFARI_STORE=memory` keeps the index in `.data/knowledge.json`. `SAFARI_STORE=postgres` uses PostgreSQL and pgvector (`docker compose up`).
+
+## Score
+
+```text
+0.34*semantic + 0.24*keyword + 0.18*reranker + 0.14*authority + 0.10*freshness
+```
+
+Confidence, logged on each answer:
+
+```text
+0.35*retrieval + 0.25*reranker + 0.20*authority + 0.20*freshness
+```
+
+Bands are HIGH, MEDIUM, and LOW. Planning shortlists stay MEDIUM: they are a filter over park profiles, not a booked itinerary.
+
+English and Swahili questions are accepted. Swahili is expanded into English search terms, and the reply stays in Swahili.
+
+Phase 2 sources (TAWA, NCAA, the Tanzania Tourist Board, immigration) are listed in `knowledge/sources/registry.json` and are not ingested yet.

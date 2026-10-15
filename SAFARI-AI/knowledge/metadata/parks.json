@@ -1,0 +1,229 @@
+{
+  "source": {
+    "title": "TANAPA GIS map of national parks (2024)",
+    "url": "https://www.tanzaniaparks.go.tz/uploads/publications/en-1710606473-TNPMapENG.pdf",
+    "note": "Area and establishment figures are taken from the park table on that map. The map label Mkomanzi is stored here under the name Mkomazi. Mahale Mountain and Udzungwa Mountain on the map are stored under the names used by TANAPA."
+  },
+  "organization": {
+    "name": "Tanzania National Parks",
+    "abbreviation": "TANAPA",
+    "postal": "PO Box 3134, Arusha",
+    "phone": "+255 (0) 272 970 404",
+    "email": "info@tanzaniaparks.go.tz",
+    "contact_source": "https://www.tanzaniaparks.go.tz/nationalparks"
+  },
+  "parks": [
+    {
+      "slug": "serengeti",
+      "name": "Serengeti National Park",
+      "area_km2": 14763,
+      "established_year": 1968,
+      "gazette": "GN 235",
+      "circuit": "northern",
+      "interests": ["wildlife"],
+      "aliases": ["serengeti"]
+    },
+    {
+      "slug": "tarangire",
+      "name": "Tarangire National Park",
+      "area_km2": 2600,
+      "established_year": 1970,
+      "gazette": "GN 160",
+      "circuit": "northern",
+      "interests": ["wildlife"],
+      "aliases": ["tarangire"]
+    },
+    {
+      "slug": "lake-manyara",
+      "name": "Lake Manyara National Park",
+      "area_km2": 648.7,
+      "established_year": 1960,
+      "gazette": "GN 505, 2009 GN 105",
+      "circuit": "northern",
+      "interests": ["wildlife"],
+      "aliases": ["lake manyara", "manyara"]
+    },
+    {
+      "slug": "arusha",
+      "name": "Arusha National Park",
+      "area_km2": 552,
+      "established_year": 1960,
+      "gazette": "GN 237, 2005 GN 280",
+      "circuit": "northern",
+      "interests": ["wildlife", "hiking"],
+      "strict_aliases": ["arusha national park", "arusha park", "hifadhi ya arusha"]
+    },
+    {
+      "slug": "kilimanjaro",
+      "name": "Kilimanjaro National Park",
+      "area_km2": 1668,
+      "established_year": 1974,
+      "gazette": "GN 56, 2005 GN 258",
+      "circuit": "northern",
+      "interests": ["hiking"],
+      "mountain_climb": true,
+      "aliases": ["kilimanjaro"]
+    },
+    {
+      "slug": "mkomazi",
+      "name": "Mkomazi National Park",
+      "area_km2": 3245,
+      "established_year": 2008,
+      "gazette": "GN 27",
+      "circuit": "northern",
+      "interests": ["wildlife"],
+      "aliases": ["mkomazi", "mkomanzi"]
+    },
+    {
+      "slug": "mikumi",
+      "name": "Mikumi National Park",
+      "area_km2": 3245,
+      "established_year": 1964,
+      "gazette": "GN 465",
+      "circuit": "southern",
+      "interests": ["wildlife"],
+      "aliases": ["mikumi"]
+    },
+    {
+      "slug": "nyerere",
+      "name": "Nyerere National Park",
+      "area_km2": 30893,
+      "established_year": 2019,
+      "gazette": "GN 923",
+      "circuit": "southern",
+      "interests": ["wildlife"],
+      "aliases": ["nyerere", "selous"]
+    },
+    {
+      "slug": "ruaha",
+      "name": "Ruaha National Park",
+      "area_km2": 20300,
+      "established_year": 1964,
+      "gazette": "GN 464, 2008 GN 28",
+      "circuit": "southern",
+      "interests": ["wildlife"],
+      "aliases": ["ruaha"]
+    },
+    {
+      "slug": "udzungwa",
+      "name": "Udzungwa Mountains National Park",
+      "area_km2": 1990,
+      "established_year": 1992,
+      "gazette": "GN 39",
+      "circuit": "southern",
+      "interests": ["hiking"],
+      "aliases": ["udzungwa"]
+    },
+    {
+      "slug": "kitulo",
+      "name": "Kitulo National Park",
+      "area_km2": 465,
+      "established_year": 2005,
+      "gazette": "GN 271",
+      "circuit": "southern",
+      "interests": ["hiking"],
+      "aliases": ["kitulo"]
+    },
+    {
+      "slug": "saadani",
+      "name": "Saadani National Park",
+      "area_km2": 1100,
+      "established_year": 2005,
+      "gazette": "GN 281",
+      "circuit": "coast",
+      "interests": ["wildlife"],
+      "beach": true,
+      "aliases": ["saadani"]
+    },
+    {
+      "slug": "katavi",
+      "name": "Katavi National Park",
+      "area_km2": 4471,
+      "established_year": 1974,
+      "gazette": "GN 1, 1997 GN 13",
+      "circuit": "western",
+      "interests": ["wildlife"],
+      "aliases": ["katavi"]
+    },
+    {
+      "slug": "mahale",
+      "name": "Mahale Mountains National Park",
+      "area_km2": 1613,
+      "established_year": 1985,
+      "gazette": "GN 262",
+      "circuit": "western",
+      "interests": ["primate"],
+      "aliases": ["mahale"]
+    },
+    {
+      "slug": "gombe",
+      "name": "Gombe National Park",
+      "area_km2": 71,
+      "established_year": 1968,
+      "gazette": "GN 234, 2013 GN 228",
+      "circuit": "western",
+      "interests": ["primate"],
+      "aliases": ["gombe"]
+    },
+    {
+      "slug": "ugalla",
+      "name": "Ugalla River National Park",
+      "area_km2": 3865,
+      "established_year": 2019,
+      "gazette": "GN 936",
+      "circuit": "western",
+      "interests": ["wildlife"],
+      "aliases": ["ugalla"]
+    },
+    {
+      "slug": "rubondo",
+      "name": "Rubondo Island National Park",
+      "area_km2": 457,
+      "established_year": 1977,
+      "gazette": "GN 21",
+      "circuit": "lake",
+      "interests": ["wildlife"],
+      "aliases": ["rubondo"]
+    },
+    {
+      "slug": "saanane",
+      "name": "Saanane Island National Park",
+      "area_km2": 2.18,
+      "established_year": 2013,
+      "gazette": "GN 227",
+      "circuit": "lake",
+      "interests": ["wildlife"],
+      "aliases": ["saanane"]
+    },
+    {
+      "slug": "burigi-chato",
+      "name": "Burigi-Chato National Park",
+      "area_km2": 4707,
+      "established_year": 2019,
+      "gazette": "GN 508",
+      "circuit": "lake",
+      "interests": ["wildlife"],
+      "aliases": ["burigi-chato", "burigi", "chato"]
+    },
+    {
+      "slug": "ibanda-kyerwa",
+      "name": "Ibanda-Kyerwa National Park",
+      "area_km2": 298.6,
+      "established_year": 2019,
+      "gazette": "GN 509",
+      "circuit": "lake",
+      "interests": ["wildlife"],
+      "aliases": ["ibanda-kyerwa", "ibanda", "kyerwa"]
+    },
+    {
+      "slug": "rumanyika-karagwe",
+      "name": "Rumanyika-Karagwe National Park",
+      "area_km2": 247,
+      "established_year": 2019,
+      "gazette": "GN 510",
+      "circuit": "lake",
+      "interests": ["wildlife"],
+      "aliases": ["rumanyika-karagwe", "rumanyika", "karagwe"]
+    }
+  ]
+}

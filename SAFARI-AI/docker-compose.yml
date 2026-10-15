@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: safari
+      POSTGRES_PASSWORD: safari
+      POSTGRES_DB: safari_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - safari_pg:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile
+    environment:
+      SAFARI_STORE: postgres
+      DATABASE_URL: postgresql://safari:safari@postgres:5432/safari_ai
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      SAFARI_ADMIN_TOKEN: ${SAFARI_ADMIN_TOKEN:-}
+      SAFARI_REFRESH_HOURS: ${SAFARI_REFRESH_HOURS:-12}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+
+volumes:
+  safari_pg:

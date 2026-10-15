@@ -1,0 +1,18 @@
+[
+  {"id": "plan-wildlife-week", "question": "I'm visiting Tanzania for 7 days in August. I want wildlife, not beaches, and I'm travelling with two children. Which parks should I consider?", "category": "planning", "expect_parks": ["serengeti", "tarangire", "lake-manyara"], "expect_abstain": false, "expect_contains": ["NCAA"]},
+  {"id": "serengeti-fee", "question": "What are the current Serengeti conservation fees?", "category": "fee", "expect_abstain": false, "expect_contains": ["178,850"]},
+  {"id": "serengeti-fee-eac", "question": "How much is Serengeti entry for a Kenyan citizen?", "profile": {"passport": "Kenya"}, "category": "fee", "expect_abstain": false, "expect_contains": ["10,000"]},
+  {"id": "tarangire-camping", "question": "How much is camping in Tarangire?", "category": "fee", "expect_abstain": false, "expect_contains": ["Public Camping"]},
+  {"id": "family-estimate", "question": "Plan 3 days in Tarangire", "profile": {"passport": "Germany", "adults": 2, "child_ages": [7, 3]}, "category": "planning", "expect_abstain": false, "expect_contains": ["881,475"]},
+  {"id": "mikumi-swahili-cost", "question": "Nataka kwenda Mikumi kwa siku tatu. Nipe makadirio ya gharama.", "profile": {"adults": 2}, "category": "fee", "expect_abstain": false, "expect_contains": ["459,900"]},
+  {"id": "mikumi-elephants", "question": "Can I see elephants in Mikumi?", "category": "wildlife", "expect_abstain": false, "expect_contains": ["elephants"]},
+  {"id": "tarangire-elephants-sw", "question": "Kuna tembo Tarangire?", "category": "wildlife", "expect_abstain": false},
+  {"id": "mikumi-penguins", "question": "Can I see penguins in Mikumi?", "category": "wildlife", "expect_citation": false},
+  {"id": "ruaha-area", "question": "How big is Ruaha National Park?", "category": "park_fact", "expect_abstain": false, "expect_contains": ["20,300"]},
+  {"id": "visa-germany", "question": "Do I need a visa from Germany?", "category": "visa", "expect_abstain": false, "expect_contains": ["50 USD"]},
+  {"id": "visa-kenya", "question": "Do Kenyans need a visa for Tanzania?", "category": "visa", "expect_abstain": false, "expect_contains": ["Kenya"], "expect_block": "visa"},
+  {"id": "ruaha-contact", "question": "What is the phone number for Ruaha National Park?", "category": "contact", "expect_abstain": false, "expect_contains": ["+255"]},
+  {"id": "helicopter-price", "question": "Can I get a helicopter from Serengeti to Mafia Island for TSh 850,000 tomorrow?", "category": "unsupported", "expect_abstain": true, "expect_citation": false},
+  {"id": "ngorongoro", "question": "How much is Ngorongoro crater entry?", "category": "scope", "expect_abstain": true, "expect_contains": ["NCAA"]},
+  {"id": "zanzibar", "question": "What are the best beaches in Zanzibar?", "category": "scope", "expect_abstain": true}
+]

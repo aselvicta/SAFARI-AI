@@ -1,0 +1,74 @@
+[
+  {
+    "id": "tanapa",
+    "name": "Tanzania National Parks",
+    "phase": 1,
+    "authority_score": 1.0,
+    "topics": ["parks", "fees", "procedures", "publications"],
+    "url": "https://www.tanzaniaparks.go.tz/nationalparks"
+  },
+  {
+    "id": "tanapa_publications",
+    "name": "TANAPA publications",
+    "phase": 1,
+    "authority_score": 1.0,
+    "topics": ["brochures", "acts", "policies", "guidelines", "manuals", "newsletters"],
+    "url": "https://www.tanzaniaparks.go.tz/corporate/publications"
+  },
+  {
+    "id": "tanapa_tariffs",
+    "name": "TANAPA park fees and tariffs",
+    "phase": 1,
+    "authority_score": 1.0,
+    "topics": ["fees", "tariffs"],
+    "url": "https://www.tanzaniaparks.go.tz/tourism/visitor-information/tariff"
+  },
+  {
+    "id": "tanapa_plan",
+    "name": "TANAPA plan a trip",
+    "phase": 1,
+    "authority_score": 1.0,
+    "topics": ["visitor information", "permits", "payment"],
+    "url": "https://www.tanzaniaparks.go.tz/plan-a-trip"
+  },
+  {
+    "id": "tanapa_map_2024",
+    "name": "TANAPA GIS map of national parks (2024)",
+    "phase": 1,
+    "authority_score": 1.0,
+    "topics": ["park area", "establishment"],
+    "url": "https://www.tanzaniaparks.go.tz/uploads/publications/en-1710606473-TNPMapENG.pdf"
+  },
+  {
+    "id": "ncaa",
+    "name": "Ngorongoro Conservation Area Authority",
+    "phase": 2,
+    "authority_score": 1.0,
+    "topics": ["ngorongoro"],
+    "url": "https://www.ncaa.go.tz/about-ncaa/"
+  },
+  {
+    "id": "tawa",
+    "name": "Tanzania Wildlife Management Authority",
+    "phase": 2,
+    "authority_score": 1.0,
+    "topics": ["game reserves"],
+    "url": "https://www.tawa.go.tz/"
+  },
+  {
+    "id": "ttb",
+    "name": "Tanzania Tourist Board",
+    "phase": 2,
+    "authority_score": 0.95,
+    "topics": ["destinations"],
+    "url": "https://www.tanzaniatourism.go.tz/"
+  },
+  {
+    "id": "immigration",
+    "name": "Tanzania eVisa",
+    "phase": 2,
+    "authority_score": 1.0,
+    "topics": ["visa", "entry"],
+    "url": "https://visa.immigration.go.tz/guidelines"
+  }
+]

@@ -75,7 +75,7 @@ SAFARI-AI/
 └── infrastructure/  Dockerfile, Postgres init script
 ```
 
-The PDFs and the saved TANAPA publications page at the repository root are the original downloads. Copies used by the app are in `SAFARI-AI/knowledge/documents/`.
+Official source documents (PDFs and the saved TANAPA publications page) are in `SAFARI-AI/knowledge/documents/`.
 
 ## Documentation
 

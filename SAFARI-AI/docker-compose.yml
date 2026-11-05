@@ -8,23 +8,39 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./backend/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
       - safari_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U safari -d safari_ai"]
+      interval: 3s
+      retries: 20
 
   api:
-    build:
-      context: .
-      dockerfile: infrastructure/docker/Dockerfile
+    build: ./backend
+    # DEEPSEEK_API_KEY, SAFARI_ADMIN_TOKEN and the rest come from backend/.env;
+    # the values below are the container's own and win over that file.
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
       SAFARI_STORE: postgres
+      SAFARI_DATA_DIR: /data
       DATABASE_URL: postgresql://safari:safari@postgres:5432/safari_ai
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      SAFARI_ADMIN_TOKEN: ${SAFARI_ADMIN_TOKEN:-}
-      SAFARI_REFRESH_HOURS: ${SAFARI_REFRESH_HOURS:-12}
+    volumes:
+      - safari_data:/data
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
 
 volumes:
   safari_pg:
+  safari_data:

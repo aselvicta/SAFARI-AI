@@ -1,0 +1,354 @@
+"""Admin API behind the dashboard: insights, the question log, feedback review, data and site management."""
+
+from __future__ import annotations
+
+import asyncio
+import csv
+import io
+import json
+import platform
+import re
+import time
+from datetime import date, datetime, timezone
+from pathlib import Path
+from typing import Literal
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
+
+from api.security import auth_required, login_enabled, require_admin
+from services.analytics import insights
+from services.analytics.events import JsonLines
+from services.common.settings import load_settings
+from services.common.text import parse_date
+
+UPLOAD_TYPES = {".pdf", ".txt", ".md"}
+MAX_UPLOAD_BYTES = 25_000_000
+STARTED_AT = datetime.now(timezone.utc)
+CSV_FIELDS = ["at", "question", "intent", "language", "parks", "recommended", "generator", "abstained", "confidence_label", "citations", "latency_ms", "passport", "visitor_class", "days", "adults", "children", "channel", "error"]
+
+router = APIRouter(dependencies=[Depends(require_admin)])
+
+
+class ReviewRequest(BaseModel):
+    status: Literal["open", "reviewed", "resolved", "dismissed"]
+    note: str = Field(default="", max_length=1000)
+
+
+def _assistant(request: Request):
+    return request.app.state.assistant
+
+
+def _analytics(request: Request):
+    return request.app.state.analytics
+
+
+def _park_names(store) -> dict[str, str]:
+    return {park.slug: park.name for park in store.list_parks()}
+
+
+def harvest_log() -> JsonLines:
+    return JsonLines(load_settings().data_dir / "harvests.jsonl")
+
+
+def log_harvest(kind: str, trigger: str, started: float, report: dict) -> None:
+    api = report.get("api", report)
+    harvest_log().append(
+        {
+            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "kind": kind,
+            "trigger": trigger,
+            "status": api.get("status", "unknown"),
+            "error": api.get("error"),
+            "tariff_rows": api.get("tariff_rows"),
+            "parks": api.get("parks"),
+            "documents": (report.get("totals") or {}).get("documents"),
+            "duration_s": round(time.perf_counter() - started, 1),
+        }
+    )
+
+
+# Overview and insights ---------------------------------------------------------------
+
+
+@router.get("/v1/admin/session")
+def session(request: Request) -> dict:
+    settings = _assistant(request).settings
+    return {"ok": True, "token_required": auth_required(settings), "username": settings.admin_username if login_enabled(settings) else None}
+
+
+@router.get("/v1/admin/overview")
+def overview(request: Request, days: int = Query(30, ge=1, le=365)) -> dict:
+    assistant = _assistant(request)
+    stats = insights.overview(_analytics(request), _park_names(assistant.store), days)
+    stock = insights.inventory(assistant.store, assistant.settings.tzs_per_usd)
+    stats["alerts"] = insights.alerts(assistant.store, assistant.settings, stats, stock)
+    stats["inventory_totals"] = stock["totals"]
+    stats["sources"] = assistant.store.source_status()
+    stats["llm_enabled"] = assistant.settings.llm_enabled
+    return stats
+
+
+@router.get("/v1/admin/questions")
+def questions(
+    request: Request,
+    days: int | None = Query(None, ge=1, le=365),
+    q: str = "",
+    intent: str = "",
+    park: str = "",
+    outcome: str = "",
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    return insights.question_log(_analytics(request), days=days, q=q, intent=intent, park=park, outcome=outcome, limit=limit, offset=offset)
+
+
+@router.get("/v1/admin/questions.csv")
+def questions_csv(request: Request, days: int | None = Query(None, ge=1, le=365)) -> Response:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=CSV_FIELDS, extrasaction="ignore")
+    writer.writeheader()
+    for row in _analytics(request).questions(days):
+        writer.writerow({**row, "parks": " ".join(row.get("parks") or []), "recommended": " ".join(row.get("recommended") or [])})
+    return Response(
+        buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=safari-questions-{date.today().isoformat()}.csv"},
+    )
+
+
+# Feedback ---------------------------------------------------------------------------
+
+
+@router.get("/v1/admin/feedback")
+def feedback(request: Request, status: str = "", rating: int | None = Query(None, ge=-1, le=1), days: int | None = Query(None, ge=1, le=365)) -> dict:
+    items = _analytics(request).feedback_items(days)
+    counts = {
+        "total": len(items),
+        "positive": sum(1 for item in items if item["rating"] == 1),
+        "negative": sum(1 for item in items if item["rating"] == -1),
+        "open": sum(1 for item in items if item["review_status"] == "open"),
+    }
+    if status:
+        items = [item for item in items if item["review_status"] == status]
+    if rating is not None:
+        items = [item for item in items if item["rating"] == rating]
+    return {"counts": counts, "items": list(reversed(items))}
+
+
+@router.post("/v1/admin/feedback/{feedback_id}")
+def review_feedback(feedback_id: str, body: ReviewRequest, request: Request) -> dict:
+    analytics = _analytics(request)
+    if not any(item["id"] == feedback_id for item in analytics.feedback_items()):
+        raise HTTPException(status_code=404, detail="Unknown feedback item")
+    return analytics.set_review(feedback_id, status=body.status, note=body.note)
+
+
+# Data from the TANAPA site --------------------------------------------------------------
+
+
+@router.get("/v1/admin/inventory")
+def inventory(request: Request, as_of: date | None = None) -> dict:
+    assistant = _assistant(request)
+    return insights.inventory(assistant.store, assistant.settings.tzs_per_usd, as_of)
+
+
+@router.get("/v1/admin/fees")
+def fee_rows(
+    request: Request,
+    park: str = "",
+    category: str = "",
+    visitor: str = "",
+    state: Literal["", "in_force", "upcoming", "expired"] = "",
+    q: str = "",
+    limit: int = Query(200, ge=1, le=3000),
+) -> dict:
+    assistant = _assistant(request)
+    today = date.today()
+    rate = assistant.settings.tzs_per_usd
+    needle = q.strip().lower()
+    rows = []
+    for record in assistant.store.list_records("tariff"):
+        row = record.payload
+        if park and row.get("park_slug") != park:
+            continue
+        if category and row.get("category") != category:
+            continue
+        if visitor and row.get("visitor") != visitor:
+            continue
+        start, end = parse_date(row.get("valid_from")), parse_date(row.get("valid_until"))
+        row_state = "upcoming" if start and start > today else "expired" if end and end < today else "in_force"
+        if state and row_state != state:
+            continue
+        if needle and needle not in f"{row.get('product', '')} {row.get('item', '')} {row.get('park_name', '')}".lower():
+            continue
+        rows.append({**row, "state": row_state, "usd": round(float(row.get("amount") or 0) / rate, 2) if row.get("currency") == "TZS" else None})
+    rows.sort(key=lambda row: (row.get("park_name") or "", row.get("category") or "", row.get("item") or "", row.get("visitor") or "", row.get("valid_from") or ""))
+    all_rows = [record.payload for record in assistant.store.list_records("tariff")]
+    return {
+        "total": len(rows),
+        "rows": rows[:limit],
+        "categories": sorted({row.get("category") for row in all_rows if row.get("category")}),
+        "visitors": sorted({row.get("visitor") for row in all_rows if row.get("visitor")}),
+        "tzs_per_usd": rate,
+    }
+
+
+# Documents ------------------------------------------------------------------------------------
+
+
+@router.get("/v1/admin/documents")
+def documents(request: Request) -> list[dict]:
+    store = _assistant(request).store
+    chunk_counts: dict[str, int] = {}
+    characters: dict[str, int] = {}
+    for chunk in store.all_chunks():
+        chunk_counts[chunk.document_id] = chunk_counts.get(chunk.document_id, 0) + 1
+        characters[chunk.document_id] = characters.get(chunk.document_id, 0) + len(chunk.text)
+    return [
+        {
+            "document_id": document.document_id,
+            "title": document.title,
+            "organization": document.organization,
+            "document_type": document.document_type,
+            "language": document.language,
+            "authority": document.authority,
+            "authority_score": document.authority_score,
+            "status": document.status,
+            "effective_from": document.effective_from,
+            "effective_until": document.effective_until,
+            "retrieved_at": document.retrieved_at,
+            "source_url": document.source_url,
+            "park_slug": document.park_slug,
+            "version": document.version,
+            "chunks": chunk_counts.get(document.document_id, 0),
+            "characters": characters.get(document.document_id, 0),
+        }
+        for document in store.list_documents()
+    ]
+
+
+@router.delete("/v1/admin/documents/{document_id}")
+def delete_document(document_id: str, request: Request) -> dict:
+    store = _assistant(request).store
+    document = store.get_document(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Unknown document")
+    store.delete_document(document_id)
+    return {"ok": True, "message": f"Removed {document.title} from the index."}
+
+
+@router.post("/v1/documents")
+async def upload_document(request: Request, file: UploadFile = File(...), metadata: str = Form("{}")) -> dict:
+    from services.ingestion.pipeline import ingest_file
+
+    try:
+        extra = json.loads(metadata or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="metadata must be JSON") from exc
+    filename = re.sub(r"[^A-Za-z0-9._ -]+", "_", Path(file.filename or "upload.txt").name)[:120]
+    if Path(filename).suffix.lower() not in UPLOAD_TYPES:
+        raise HTTPException(status_code=400, detail="Upload a PDF, .txt or .md file")
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File is larger than 25 MB")
+    destination_dir = load_settings().data_dir / "uploads"
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / filename
+    destination.write_bytes(content)
+    assistant = _assistant(request)
+    document = await asyncio.to_thread(ingest_file, assistant.store, destination, extra, assistant.embedder)
+    return {
+        "document_id": document.document_id,
+        "title": document.title,
+        "document_type": document.document_type,
+        "authority": document.authority,
+        "status": document.status,
+    }
+
+
+# Sources -------------------------------------------------------------------------------------
+
+
+@router.post("/v1/admin/harvest")
+async def admin_harvest(request: Request, full: bool = False) -> dict:
+    from services.sources.harvest import harvest, refresh_api
+
+    assistant = _assistant(request)
+    started = time.perf_counter()
+    if full:
+        report = await asyncio.to_thread(harvest, assistant.store, assistant.embedder)
+    else:
+        report = await asyncio.to_thread(refresh_api, assistant.store, assistant.embedder)
+    log_harvest("full" if full else "api", "admin", started, report)
+    api = report.get("api", report)
+    message = (
+        f"Synced {api.get('tariff_rows', 0)} fee rows and {api.get('parks', 0)} park profiles from TANAPA."
+        if api.get("status") == "ok"
+        else f"Refresh failed: {api.get('error', 'unknown error')}"
+    )
+    return {"message": message, "report": report}
+
+
+@router.get("/v1/admin/harvests")
+def harvests(limit: int = Query(30, ge=1, le=500)) -> list[dict]:
+    return list(reversed(harvest_log().read()))[:limit]
+
+
+# Evaluation and system ------------------------------------------------------------------------
+
+
+def _evaluation_path() -> Path:
+    return load_settings().data_dir / "evaluation_last.json"
+
+
+@router.post("/v1/evaluate")
+async def run_evaluation(request: Request) -> dict:
+    from services.evaluation.runner import evaluate, load_questions
+
+    result = await asyncio.to_thread(evaluate, _assistant(request), load_questions(), None, False)
+    result["ran_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    path = _evaluation_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(result), encoding="utf-8")
+    return result
+
+
+@router.get("/v1/admin/evaluation")
+def last_evaluation() -> dict:
+    path = _evaluation_path()
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@router.get("/v1/admin/system")
+def system(request: Request) -> dict:
+    assistant = _assistant(request)
+    settings = assistant.settings
+    analytics = _analytics(request)
+    data_files = []
+    if settings.data_dir.exists():
+        for path in sorted(settings.data_dir.rglob("*")):
+            if path.is_file():
+                data_files.append({"path": str(path.relative_to(settings.data_dir)), "bytes": path.stat().st_size, "modified": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")})
+    return {
+        "version": request.app.version,
+        "python": platform.python_version(),
+        "started_at": STARTED_AT.isoformat(timespec="seconds"),
+        "uptime_s": int((datetime.now(timezone.utc) - STARTED_AT).total_seconds()),
+        "store": settings.store,
+        "data_dir": str(settings.data_dir),
+        "llm_enabled": settings.llm_enabled,
+        "llm_model": settings.llm_model if settings.llm_enabled else None,
+        "llm_base_url": settings.llm_base_url or None,
+        "refresh_hours": settings.refresh_hours,
+        "tzs_per_usd": settings.tzs_per_usd,
+        "admin_token_set": bool(settings.admin_token),
+        "admin_login_set": login_enabled(settings),
+        "rate_limit": {"limit": request.app.state.limiter.limit, "window_s": request.app.state.limiter.window},
+        "sessions_in_memory": len(assistant.memory._sessions),
+        "event_log_bytes": analytics.events.size_bytes(),
+        "data_files": data_files,
+    }

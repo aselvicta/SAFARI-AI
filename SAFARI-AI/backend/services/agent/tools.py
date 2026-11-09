@@ -383,7 +383,7 @@ class Toolbox:
             title="TANAPA park fees and tariffs 2026/27 (live)",
             organization="TANAPA",
             source_url=TARIFF_PAGE,
-            excerpt=f"Official fee rows for {park_name}, valid on {self.as_of.isoformat()}.",
+            excerpt=f"Official fee rows for {park_name}, valid on {self.as_of.day} {self.as_of:%b %Y}.",
             kind="api",
         )
 

@@ -105,3 +105,17 @@ def test_dashes_in_indexed_documents_and_llm_output_are_removed(monkeypatch):
         _no_dashes(streamed)
         assert '"generator": "agent"' in streamed
         assert "Jun-Oct, plains, woodland" in streamed and "\\n- a bullet" in streamed
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("Entrance Children 5 - 15 Years", "Entrance Children 5 to 15 Years"),
+        ("General Brochure - English", "General Brochure, English"),
+        ("- bullet\n  - nested", "- bullet\n  - nested"),
+        ("well-known, 5-15, 2026-11-10, -5", "well-known, 5-15, 2026-11-10, -5"),
+        ("| a | - |", "| a | - |"),
+    ],
+)
+def test_spaced_hyphens_read_as_dashes_and_are_cleaned_too(raw, expected):
+    assert clean_dashes(raw) == expected

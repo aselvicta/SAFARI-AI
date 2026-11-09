@@ -1,8 +1,73 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { format, formatDate } from "../i18n";
+
+// Excerpts longer than this start clamped to a few lines, with a toggle.
+const LONG_EXCERPT = 240;
 
 function citationNumber(citation, index) {
   return citation.n ?? index + 1;
+}
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function Source({ citation, number, focused, t, lang }) {
+  const [expanded, setExpanded] = useState(false);
+  const window =
+    citation.effective_from || citation.effective_until
+      ? format(t.effective, {
+          from: formatDate(citation.effective_from, lang) || "?",
+          to: formatDate(citation.effective_until, lang) || "?",
+        })
+      : "";
+  const meta = [citation.organization, citation.authority].filter(Boolean);
+  const status = citation.status && citation.status !== "pointer" ? citation.status : null;
+  const excerpt = citation.excerpt || "";
+  const long = excerpt.length > LONG_EXCERPT;
+  const link = citation.source_url && /^https?:\/\//.test(citation.source_url) ? citation.source_url : null;
+
+  return (
+    <li data-cite={number} className={focused ? "is-focused" : ""}>
+      <span className="source-number" aria-hidden="true">
+        {number}
+      </span>
+      <div className="source-body">
+        <h3>
+          <span className="visually-hidden">{number}. </span>
+          {citation.title || citation.document_id}
+        </h3>
+        {meta.length || status ? (
+          <p className="source-meta">
+            {meta.map((item) => (
+              <span key={item}>{item}</span>
+            ))}
+            {status ? <span className={`source-status ${status === "current" ? "ok" : "warn"}`}>{status}</span> : null}
+          </p>
+        ) : null}
+        {window ? <p className="source-window">{window}</p> : null}
+        {excerpt ? <p className={`source-excerpt ${long && !expanded ? "clamped" : ""}`}>{excerpt}</p> : null}
+        {long || link ? (
+          <div className="source-actions">
+            {link ? (
+              <a className="source-link" href={link} target="_blank" rel="noopener noreferrer" aria-label={`${t.openSource}: ${hostOf(link)}`}>
+                {hostOf(link) || t.openSource} ↗
+              </a>
+            ) : null}
+            {long ? (
+              <button type="button" className="source-more" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+                {expanded ? t.showLess : t.showMore}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </li>
+  );
 }
 
 export default function SourcesDrawer({ open, citations, focus, t, lang, onClose }) {
@@ -37,53 +102,31 @@ export default function SourcesDrawer({ open, citations, focus, t, lang, onClose
       <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="sources-title">
         <header className="drawer-head">
           <div>
-            <h2 id="sources-title" className="display">
-              {t.sources}
-            </h2>
-            <p>{t.sourcesSub}</p>
+            <h2 id="sources-title">{t.sources}</h2>
+            <p>
+              {citations.length ? `${format(t.sourcesCount, { n: citations.length })} · ` : ""}
+              {t.sourcesSub}
+            </p>
           </div>
-          <button ref={closeRef} type="button" className="icon-button light" onClick={onClose} aria-label={t.close}>
-            ✕
+          <button ref={closeRef} type="button" className="drawer-close" onClick={onClose} aria-label={t.close}>
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
           </button>
         </header>
         {citations.length ? (
           <ol className="source-list" ref={listRef}>
             {citations.map((citation, index) => {
               const number = citationNumber(citation, index);
-              const window =
-                citation.effective_from || citation.effective_until
-                  ? format(t.effective, {
-                      from: formatDate(citation.effective_from, lang) || "?",
-                      to: formatDate(citation.effective_until, lang) || "?",
-                    })
-                  : "";
               return (
-                <li
+                <Source
                   key={`${citation.document_id || "source"}-${number}`}
-                  data-cite={number}
-                  className={number === focus ? "is-focused" : ""}
-                >
-                  <span className="source-number">{number}</span>
-                  <div>
-                    <h3>{citation.title || citation.document_id}</h3>
-                    <p className="source-meta">
-                      {citation.organization ? <span>{citation.organization}</span> : null}
-                      {citation.authority ? <span className="badge badge-small">{citation.authority}</span> : null}
-                      {citation.status && citation.status !== "pointer" ? (
-                        <span className={`badge badge-small ${citation.status === "current" ? "badge-ok" : "badge-warn"}`}>
-                          {citation.status}
-                        </span>
-                      ) : null}
-                    </p>
-                    {window ? <p className="source-window">{window}</p> : null}
-                    {citation.excerpt ? <blockquote>{citation.excerpt}</blockquote> : null}
-                    {citation.source_url && /^https?:\/\//.test(citation.source_url) ? (
-                      <a href={citation.source_url} target="_blank" rel="noopener noreferrer">
-                        {t.openSource} ↗
-                      </a>
-                    ) : null}
-                  </div>
-                </li>
+                  citation={citation}
+                  number={number}
+                  focused={number === focus}
+                  t={t}
+                  lang={lang}
+                />
               );
             })}
           </ol>

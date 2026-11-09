@@ -8,6 +8,10 @@ LLM, which uses them freely. `clean_dashes` rewrites them by role so the sentenc
     children 5–15, Jun–Oct              →  children 5-15, Jun-Oct
     — a bullet                          →  - a bullet
 
+A hyphen with a space on each side reads as a dash too, so it gets the same treatment ("Children 5 - 15"
+→ "Children 5 to 15", "Brochure - English" → "Brochure, English"). Tight hyphens (5-15, well-known) and
+"- " bullets at the start of a line are left alone.
+
 `clean` applies it to every string inside a JSON-like value; `DashStream` applies it to streamed text.
 """
 
@@ -21,6 +25,8 @@ _D = f"[{DASHES}]"
 _RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(rf"(?m)^([ \t]*){_D}+[ \t]+"), r"\1- "),  # a dash used as a bullet
     (re.compile(rf"(\d)[ \t]+{_D}[ \t]+(?=\d)"), r"\1 to "),  # spaced range between figures or dates
+    (re.compile(r"(\d)[ \t]+-[ \t]+(?=\d)"), r"\1 to "),  # the same written with a spaced hyphen
+    (re.compile(r"(?<=[^\s|])[ \t]+-[ \t]+(?=[^\s|])"), ", "),  # a spaced hyphen standing in for a dash (not a table cell)
     (re.compile(r"(\w)[\u2013\u2012](?=\w)"), r"\1-"),  # tight en-dash range: 5–15, Jun–Oct, 2026–27
     (re.compile(rf"[ \t]*{_D}+[ \t]*"), ", "),  # any other dash joins two parts of a sentence
 ]
@@ -32,7 +38,7 @@ _TIDY: list[tuple[re.Pattern, str]] = [
     (re.compile(r":[ \t]*,[ \t]*"), ": "),
     (re.compile(r",[ \t]*$", re.MULTILINE), ""),  # a dash that ended a line
 ]
-_ANY = re.compile(_D)
+_ANY = re.compile(rf"{_D}|[ \t]-[ \t]")
 
 
 def clean_dashes(text: str) -> str:
@@ -62,7 +68,7 @@ class DashStream:
     before it and everything after it up to one word character, or else the last character and any
     whitespace after it."""
 
-    _TAIL = re.compile(rf"(?:\S?\s*[{DASHES}]+[^\w{DASHES}]*\w?|\S?\s*)$")
+    _TAIL = re.compile(rf"(?:\S?\s*[{DASHES}-]+[^\w{DASHES}-]*\w?|\S?\s*)$")
 
     def __init__(self) -> None:
         self.held = ""

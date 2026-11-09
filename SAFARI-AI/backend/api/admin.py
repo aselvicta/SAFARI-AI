@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from api.security import auth_required, login_enabled, require_admin
 from services.analytics import insights
-from services.analytics.events import JsonLines
+from services.analytics.events import JsonDoc, open_lines
 from services.common.settings import load_settings
 from services.common.text import parse_date
 
@@ -48,13 +48,13 @@ def _park_names(store) -> dict[str, str]:
     return {park.slug: park.name for park in store.list_parks()}
 
 
-def harvest_log() -> JsonLines:
-    return JsonLines(load_settings().data_dir / "harvests.jsonl")
+def harvest_log(store):
+    return open_lines(load_settings().data_dir, store, "harvests")
 
 
-def log_harvest(kind: str, trigger: str, started: float, report: dict) -> None:
+def log_harvest(store, kind: str, trigger: str, started: float, report: dict) -> None:
     api = report.get("api", report)
-    harvest_log().append(
+    harvest_log(store).append(
         {
             "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "kind": kind,
@@ -281,7 +281,7 @@ async def admin_harvest(request: Request, full: bool = False) -> dict:
         report = await asyncio.to_thread(harvest, assistant.store, assistant.embedder)
     else:
         report = await asyncio.to_thread(refresh_api, assistant.store, assistant.embedder)
-    log_harvest("full" if full else "api", "admin", started, report)
+    log_harvest(assistant.store, "full" if full else "api", "admin", started, report)
     api = report.get("api", report)
     message = (
         f"Synced {api.get('tariff_rows', 0)} fee rows and {api.get('parks', 0)} park profiles from TANAPA."
@@ -292,15 +292,15 @@ async def admin_harvest(request: Request, full: bool = False) -> dict:
 
 
 @router.get("/v1/admin/harvests")
-def harvests(limit: int = Query(30, ge=1, le=500)) -> list[dict]:
-    return list(reversed(harvest_log().read()))[:limit]
+def harvests(request: Request, limit: int = Query(30, ge=1, le=500)) -> list[dict]:
+    return list(reversed(harvest_log(_assistant(request).store).read()))[:limit]
 
 
 # Evaluation and system ------------------------------------------------------------------------
 
 
-def _evaluation_path() -> Path:
-    return load_settings().data_dir / "evaluation_last.json"
+def _evaluation_doc(request: Request) -> JsonDoc:
+    return JsonDoc(load_settings().data_dir, _assistant(request).store, "evaluation_last")
 
 
 @router.post("/v1/evaluate")
@@ -309,18 +309,13 @@ async def run_evaluation(request: Request) -> dict:
 
     result = await asyncio.to_thread(evaluate, _assistant(request), load_questions(), None, False)
     result["ran_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    path = _evaluation_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(result), encoding="utf-8")
+    _evaluation_doc(request).save(result)
     return result
 
 
 @router.get("/v1/admin/evaluation")
-def last_evaluation() -> dict:
-    path = _evaluation_path()
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+def last_evaluation(request: Request) -> dict:
+    return _evaluation_doc(request).load()
 
 
 @router.get("/v1/admin/system")

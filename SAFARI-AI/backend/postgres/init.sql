@@ -140,6 +140,17 @@ CREATE TABLE IF NOT EXISTS contacts (
     source_url text
 );
 
+-- Question events, feedback and harvest runs. One row per entry; `record` holds the same JSON the
+-- file store writes to its .jsonl logs.
+CREATE TABLE IF NOT EXISTS app_log (
+    id bigserial PRIMARY KEY,
+    stream text NOT NULL,
+    at timestamptz NOT NULL DEFAULT now(),
+    record jsonb NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS app_log_stream_at_idx ON app_log (stream, at);
+
 INSERT INTO visitor_categories (category_id, label, description) VALUES
     ('citizen', 'Tanzanian citizen', 'Identity is not inferred. A current tariff must define the rate.'),
     ('eac_citizen', 'East African Community citizen', 'Identity is not inferred. A current tariff must define the rate.'),
@@ -174,3 +185,19 @@ CREATE TABLE IF NOT EXISTS source_status (
     source_id text PRIMARY KEY,
     status jsonb NOT NULL
 );
+
+-- Row-level security on, with no policies. The app connects as the table owner, which bypasses it.
+-- Roles a hosted Postgres exposes to the internet (Supabase's anon and authenticated, through its
+-- REST API) can then read nothing. On plain Postgres this changes nothing.
+DO $$
+DECLARE
+    name text;
+BEGIN
+    FOREACH name IN ARRAY ARRAY[
+        'store_meta', 'sources', 'documents', 'document_versions', 'chunks', 'parks', 'regions',
+        'visitor_categories', 'activities', 'fees', 'accommodation', 'facilities', 'contacts',
+        'app_log', 'records', 'source_status'
+    ] LOOP
+        EXECUTE format('ALTER TABLE IF EXISTS %I ENABLE ROW LEVEL SECURITY', name);
+    END LOOP;
+END $$;

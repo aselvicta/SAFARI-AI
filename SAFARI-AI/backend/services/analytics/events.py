@@ -68,13 +68,67 @@ class JsonLines:
         return self.path.stat().st_size if self.path.exists() else 0
 
 
+class StoreLines:
+    """The JsonLines interface over a database store's append-only log (PostgresStore.append_log)."""
+
+    def __init__(self, store, stream: str) -> None:
+        self.store = store
+        self.stream = stream
+
+    def append(self, record: dict) -> None:
+        self.store.append_log(self.stream, parse_at(record.get("at")) or datetime.now(timezone.utc), record)
+
+    def read(self, since: datetime | None = None) -> list[dict]:
+        return self.store.read_log(self.stream, since)
+
+    def size_bytes(self) -> int:
+        return self.store.log_bytes(self.stream)
+
+
+class JsonDoc:
+    """One JSON object kept in a file, or in the store's metadata when the store is a database."""
+
+    def __init__(self, data_dir: Path, store, name: str) -> None:
+        self.store = store if _has_logs(store) else None
+        self.key = f"doc:{name}"
+        self.path = data_dir / f"{name}.json"
+
+    def load(self) -> dict:
+        try:
+            if self.store is not None:
+                raw = self.store.get_meta(self.key)
+                return json.loads(raw) if raw else {}
+            return json.loads(self.path.read_text(encoding="utf-8")) if self.path.exists() else {}
+        except json.JSONDecodeError:
+            return {}
+
+    def save(self, value: dict) -> None:
+        text = json.dumps(value, ensure_ascii=False)
+        if self.store is not None:
+            self.store.set_meta(self.key, text)
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_suffix(".tmp")
+        temporary.write_text(text, encoding="utf-8")
+        temporary.replace(self.path)
+
+
+def _has_logs(store) -> bool:
+    return store is not None and hasattr(store, "append_log")
+
+
+def open_lines(data_dir: Path, store, name: str) -> JsonLines | StoreLines:
+    """A log in the database when the store has one (hosts without a disk), else a .jsonl file."""
+    return StoreLines(store, name) if _has_logs(store) else JsonLines(data_dir / f"{name}.jsonl")
+
+
 class Analytics:
     """Question events, feedback, and the review state an admin sets on feedback."""
 
-    def __init__(self, data_dir: Path) -> None:
-        self.events = JsonLines(data_dir / "events.jsonl")
-        self.feedback = JsonLines(data_dir / "feedback.jsonl")
-        self.review_path = data_dir / "feedback_review.json"
+    def __init__(self, data_dir: Path, store=None) -> None:
+        self.events = open_lines(data_dir, store, "events")
+        self.feedback = open_lines(data_dir, store, "feedback")
+        self.reviews = JsonDoc(data_dir, store, "feedback_review")
         self._review_lock = threading.Lock()
 
     # Writes -------------------------------------------------------------
@@ -121,10 +175,7 @@ class Analytics:
         with self._review_lock:
             state = self._reviews()
             state[feedback_id] = {"status": status, "note": note[:1000], "at": _now()}
-            self.review_path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self.review_path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-            temporary.replace(self.review_path)
+            self.reviews.save(state)
             return state[feedback_id]
 
     # Reads --------------------------------------------------------------
@@ -156,12 +207,7 @@ class Analytics:
         return items
 
     def _reviews(self) -> dict:
-        if not self.review_path.exists():
-            return {}
-        try:
-            return json.loads(self.review_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return {}
+        return self.reviews.load()
 
 
 def feedback_id(row: dict) -> str:

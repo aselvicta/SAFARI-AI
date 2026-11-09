@@ -97,7 +97,7 @@ async def _refresh_loop(app: FastAPI, hours: float) -> None:
             log.info("refreshing TANAPA API data")
             started = time.perf_counter()
             report = await asyncio.to_thread(refresh_api, assistant.store, assistant.embedder)
-            log_harvest("api", "schedule", started, report)
+            log_harvest(assistant.store, "api", "schedule", started, report)
         await asyncio.sleep(min(3600, hours * 3600 / 4))
 
 
@@ -105,7 +105,7 @@ async def _refresh_loop(app: FastAPI, hours: float) -> None:
 async def lifespan(app: FastAPI):
     settings = load_settings()
     app.state.assistant = build_assistant(settings)
-    app.state.analytics = Analytics(settings.data_dir)
+    app.state.analytics = Analytics(settings.data_dir, app.state.assistant.store)
     app.state.limiter = RateLimiter()
     task = None
     if settings.refresh_hours > 0 and "PYTEST_CURRENT_TEST" not in os.environ:

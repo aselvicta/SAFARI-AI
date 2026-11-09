@@ -17,3 +17,6 @@ frontend/.wrangler/
 # Saved web pages (third-party scraped assets)
 docs/design/reference/*_files/
 docs/design/reference/*.html
+
+# Private deployment notes (contain secrets)
+DEPLOYMENT.md

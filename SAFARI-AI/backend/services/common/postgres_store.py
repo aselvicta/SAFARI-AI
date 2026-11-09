@@ -8,23 +8,46 @@ from __future__ import annotations
 
 import contextlib
 import json
+import threading
+import time
+from datetime import datetime
 
 from services.common.models import Chunk, Document, FeeRecord, Park, Record
 from services.common.settings import ROOT
 
 # Every statement in it is idempotent, so it runs on each start and a fresh database needs no manual setup.
 SCHEMA_FILE = ROOT / "postgres" / "init.sql"
+IDLE_PING_S = 30  # seconds a connection may sit unused before it is checked
 SCHEMA_LOCK_ID = 7_310_442  # pg_advisory_lock key, so two instances starting together don't race
 
 
 class PostgresStore:
     def __init__(self, dsn: str) -> None:
+        self.dsn = dsn
+        self._conn = None
+        self._conn_lock = threading.Lock()
+        self._last_used = 0.0
+        self.version = 0
+        self._ensure_schema()
+
+    @property
+    def conn(self):
+        # Hosted poolers (Supabase) close idle connections. After a quiet spell, check the connection
+        # with a cheap ping and reconnect, so the next visitor doesn't get the error.
         import psycopg
         from psycopg.rows import dict_row
 
-        self.conn = psycopg.connect(dsn, row_factory=dict_row, autocommit=True)
-        self.version = 0
-        self._ensure_schema()
+        with self._conn_lock:
+            now = time.monotonic()
+            if self._conn is not None and not self._conn.closed and now - self._last_used > IDLE_PING_S:
+                try:
+                    self._conn.execute("SELECT 1")
+                except psycopg.Error:
+                    self._conn.close()
+            if self._conn is None or self._conn.closed or self._conn.broken:
+                self._conn = psycopg.connect(self.dsn, row_factory=dict_row, autocommit=True)
+            self._last_used = now
+            return self._conn
 
     def _ensure_schema(self) -> None:
         if not SCHEMA_FILE.is_file():
@@ -246,6 +269,34 @@ class PostgresStore:
                 """,
                 (key, str(value)),
             )
+
+    def get_meta(self, key: str) -> str | None:
+        with self.conn.cursor() as cursor:
+            cursor.execute("SELECT value FROM store_meta WHERE key = %s", (key,))
+            row = cursor.fetchone()
+        return row["value"] if row else None
+
+    # Append-only logs (question events, feedback, harvest runs), so they survive hosts without a disk.
+
+    def append_log(self, stream: str, at: datetime, record: dict) -> None:
+        with self.conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO app_log (stream, at, record) VALUES (%s, %s, %s::jsonb)",
+                (stream, at, json.dumps(record, ensure_ascii=False)),
+            )
+
+    def read_log(self, stream: str, since: datetime | None = None) -> list[dict]:
+        with self.conn.cursor() as cursor:
+            if since is None:
+                cursor.execute("SELECT record FROM app_log WHERE stream = %s ORDER BY id", (stream,))
+            else:
+                cursor.execute("SELECT record FROM app_log WHERE stream = %s AND at >= %s ORDER BY id", (stream, since))
+            return [row["record"] for row in cursor.fetchall()]
+
+    def log_bytes(self, stream: str) -> int:
+        with self.conn.cursor() as cursor:
+            cursor.execute("SELECT COALESCE(SUM(pg_column_size(record)), 0) AS size FROM app_log WHERE stream = %s", (stream,))
+            return int(cursor.fetchone()["size"])
 
     def list_documents(self) -> list[Document]:
         with self.conn.cursor() as cursor:

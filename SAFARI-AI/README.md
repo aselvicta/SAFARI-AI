@@ -48,24 +48,34 @@ From `backend/`:
 
 While it runs, the server refreshes the TANAPA API data every `SAFARI_REFRESH_HOURS` (default 12).
 
-## Deploy (Render + Cloudflare Pages)
+## Deploy (Cloudflare Pages + Supabase + Render free)
 
-The API and PostgreSQL run on Render. The frontend runs on Cloudflare Pages, where a Pages Function (`frontend/functions/v1/[[path]].js`) forwards `/v1/*` to Render, so the browser talks to one origin and needs no CORS setup. The API creates its database schema on start, so a new database needs no manual step.
+Everything here runs on free plans:
 
-**1. Render.** Push the repo to GitHub. In the Render dashboard choose **New → Blueprint** and pick the repo. `render.yaml` creates the `safari-db` database (pgvector, private to Render), the `safari-ai-api` Docker service and a 1 GB disk at `/data` for analytics, raw snapshots and uploads. Render asks for `DEEPSEEK_API_KEY`, `SAFARI_ADMIN_USERNAME` and `SAFARI_ADMIN_PASSWORD`, and generates `SAFARI_SECRET_KEY` and `SAFARI_PROXY_SECRET`. When the deploy is live, `https://<service>.onrender.com/v1/health` answers, and the TANAPA fees and parks sync on their own within a minute. Copy the service URL and the generated `SAFARI_PROXY_SECRET` (service → Environment).
+- **Cloudflare Pages** hosts the frontend. A Pages Function (`frontend/functions/v1/[[path]].js`) forwards `/v1/*` to the API, so the browser talks to one origin and needs no CORS setup.
+- **Supabase** hosts PostgreSQL with pgvector.
+- **Render's free web plan** runs the Python API. Supabase can't host it (its functions run Deno), and Cloudflare Containers need a paid plan.
 
-**2. Cloudflare Pages.** Go to **Workers & Pages → Create → Pages → Connect to Git** and choose the repo. Use these settings:
+The API creates its schema on start. When `SAFARI_STORE=postgres`, it also keeps the question log, feedback, reviews, harvest runs and evaluation results in the database, so nothing is lost on a host without a disk.
+
+**1. Supabase.** Create a project in region `eu-central-1` and save its database password. Under **Connect**, copy the **Session pooler** URI (IPv4, port 5432), add `?sslmode=require`, and use it as `DATABASE_URL`. Render has no IPv6, so the direct connection doesn't work there. The transaction pooler (port 6543) breaks psycopg's prepared statements.
+
+**2. Render.** Go to **New → Blueprint** and pick the repo. `render.yaml` (at the repository root) creates the `safari-ai-api` Docker service on the free plan. Render asks for `DATABASE_URL`, `DEEPSEEK_API_KEY`, `SAFARI_ADMIN_USERNAME`, `SAFARI_ADMIN_PASSWORD` and `SAFARI_PROXY_SECRET` (any long random string, such as `openssl rand -hex 32`), and generates `SAFARI_SECRET_KEY`. When the deploy is live, `https://<service>.onrender.com/v1/health` answers, and the TANAPA fees and parks sync on their own within a minute.
+
+The free plan sleeps after 15 minutes without traffic, and the next request then takes about a minute. A free uptime monitor that calls `/v1/health` every 5 minutes keeps it awake. That stays within the 750 free hours a month and also keeps Supabase from pausing the project for inactivity.
+
+**3. Cloudflare Pages.** Go to **Workers & Pages → Create → Pages → Connect to Git** and choose the repo. Use these settings:
 
 | Setting | Value |
 |---|---|
-| Root directory | `frontend` |
+| Root directory | `SAFARI-AI/frontend` |
 | Build command | `npm run build` |
 | Build output directory | `dist` |
-| Variables | `API_ORIGIN` = `https://<service>.onrender.com`, `PROXY_SECRET` = the Render `SAFARI_PROXY_SECRET`, `NODE_VERSION` = `22` |
+| Variables | `API_ORIGIN` = `https://<service>.onrender.com`, `PROXY_SECRET` = the same value as `SAFARI_PROXY_SECRET` on Render, `NODE_VERSION` = `22` |
 
 Encrypt `PROXY_SECRET` as a secret. Once the site is deployed, open `/admin`, sign in, and run **Sources & sync → full harvest** once to index the publications and pages. To use your own domain, go to **Custom domains** on the Pages project.
 
-With `SAFARI_PROXY_SECRET` set, the API refuses `/v1` requests that don't come through the Pages Function (except `/v1/health`), which keeps the visitor IP used for rate limits trustworthy. Pushes to `main` redeploy both sides. Render rebuilds only when `backend/` changes. `frontend/public/_headers` sets security headers and long caching for hashed assets.
+With `SAFARI_PROXY_SECRET` set, the API refuses `/v1` requests that don't come through the Pages Function (except `/v1/health`), which keeps the visitor IP used for rate limits trustworthy. Pushes to `main` redeploy both sides. Render rebuilds only when `SAFARI-AI/backend/` changes. `frontend/public/_headers` sets security headers and long caching for hashed assets.
 
 To test the function locally: `npm run build && npx wrangler pages dev dist --binding API_ORIGIN=http://127.0.0.1:8000` in `frontend/`.
 
@@ -85,7 +95,7 @@ To test the function locally: `npm run build && npx wrangler pages dev dist --bi
 | Sources & sync | Per-source status and errors, a quick API sync or a full harvest, and the history of scheduled and manual runs |
 | System & quality | Runs the evaluation question set and shows per-question results. Configuration, uptime, data files |
 
-The period selector (today, 7, 30, 90 or 365 days) scopes the Monitor sections. Every ask is appended to `.data/events.jsonl` with its intent, parks, outcome, latency and trip details. Session ids are hashed, and IP addresses are never stored. Set `SAFARI_ADMIN_USERNAME` and `SAFARI_ADMIN_PASSWORD` before exposing the server; the dashboard then asks admins to sign in. The visitor desk has no admin link; it appears in the header only for a signed-in admin.
+The period selector (today, 7, 30, 90 or 365 days) scopes the Monitor sections. Every ask is logged (to `.data/events.jsonl`, or the `app_log` table with the Postgres store) with its intent, parks, outcome, latency and trip details. Session ids are hashed, and IP addresses are never stored. Set `SAFARI_ADMIN_USERNAME` and `SAFARI_ADMIN_PASSWORD` before exposing the server; the dashboard then asks admins to sign in. The visitor desk has no admin link; it appears in the header only for a signed-in admin.
 
 ## Sources
 

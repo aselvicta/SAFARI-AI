@@ -49,7 +49,11 @@ def overview(analytics: Analytics, park_names: dict[str, str], days: int = 30) -
         "trip_length": _top(_days_bucket(row.get("days")) for row in current if row.get("days")),
         "group_size": _top(_group_bucket(row) for row in current if row.get("adults")),
         "gaps": knowledge_gaps(current),
+        "top_questions": top_questions(answered),
         "latency": _latency(current),
+        "weekday_hours": _weekday_hours(current),
+        "outcomes": _outcomes(current),
+        "trip_details": _trip_details(answered),
     }
 
 
@@ -82,11 +86,16 @@ def _kpis(current: list[dict], previous: list[dict], feedback: list[dict]) -> di
 
 
 def _daily(rows: list[dict], start: datetime, days: int) -> list[dict]:
+    """One row per East Africa Time day. The first and last rows cover part of a day (`partial`):
+    the window starts mid-day, and today is still in progress."""
     buckets: dict[str, dict] = {}
     first = start.astimezone(EAT).date()
+    today = datetime.now(EAT).date()
     for offset in range(days + 1):
-        day = (first + timedelta(days=offset)).isoformat()
-        buckets[day] = {"date": day, "questions": 0, "abstained": 0, "sessions": set()}
+        day = first + timedelta(days=offset)
+        if day > today:
+            break
+        buckets[day.isoformat()] = {"date": day.isoformat(), "questions": 0, "abstained": 0, "sessions": set(), "real": 0, "latencies": [], "partial": day in (first, today)}
     for row in rows:
         at = parse_at(row.get("at"))
         if at is None:
@@ -96,9 +105,82 @@ def _daily(rows: list[dict], start: datetime, days: int) -> list[dict]:
             continue
         bucket["questions"] += 1
         bucket["abstained"] += int(bool(row.get("abstained")))
+        if row.get("intent") not in {"greeting", "error"}:
+            bucket["real"] += 1
+        if isinstance(row.get("latency_ms"), (int, float)):
+            bucket["latencies"].append(row["latency_ms"])
         if row.get("session"):
             bucket["sessions"].add(row["session"])
-    return [{**bucket, "sessions": len(bucket["sessions"])} for bucket in buckets.values()]
+    series = []
+    for bucket in buckets.values():
+        real, latencies = bucket.pop("real"), bucket.pop("latencies")
+        series.append(
+            {
+                **bucket,
+                "sessions": len(bucket["sessions"]),
+                "answer_rate": round(1 - bucket["abstained"] / real, 4) if real else None,
+                "median_latency_ms": round(median(latencies), 1) if latencies else None,
+            }
+        )
+    return series
+
+
+def _weekday_hours(rows: list[dict]) -> list[list[int]]:
+    """Questions by weekday (Monday first) and hour, East Africa Time: when the desk is busy."""
+    grid = [[0] * 24 for _ in range(7)]
+    for row in rows:
+        at = parse_at(row.get("at"))
+        if at:
+            local = at.astimezone(EAT)
+            grid[local.weekday()][local.hour] += 1
+    return grid
+
+
+def _outcomes(rows: list[dict]) -> list[dict]:
+    """How each question ended, best to worst. Greetings are left out."""
+    counts = {"answered": 0, "low_confidence": 0, "declined": 0, "failed": 0}
+    for row in rows:
+        if row.get("intent") == "greeting":
+            continue
+        if row.get("error"):
+            counts["failed"] += 1
+        elif row.get("abstained"):
+            counts["declined"] += 1
+        elif row.get("confidence_label") == "LOW":
+            counts["low_confidence"] += 1
+        else:
+            counts["answered"] += 1
+    return [{"key": key, "count": count} for key, count in counts.items()]
+
+
+def _trip_details(rows: list[dict]) -> dict:
+    """Share of questions that came with each trip detail: how much visitors tell the desk."""
+    total = len(rows)
+
+    def share(test) -> float | None:
+        return round(sum(1 for row in rows if test(row)) / total, 4) if total else None
+
+    return {
+        "questions": total,
+        "passport": share(lambda row: row.get("passport")),
+        "days": share(lambda row: row.get("days")),
+        "group": share(lambda row: row.get("adults")),
+        "any": share(lambda row: row.get("passport") or row.get("days") or row.get("adults")),
+    }
+
+
+def top_questions(rows: list[dict], limit: int = 10) -> list[dict]:
+    """The most repeated questions, grouped by wording."""
+    groups: dict[str, dict] = {}
+    for row in rows:
+        key = _normalize(row.get("question") or "")
+        if not key:
+            continue
+        group = groups.setdefault(key, {"question": row.get("question"), "count": 0, "intent": row.get("intent"), "answered": 0})
+        group["count"] += 1
+        group["answered"] += int(not row.get("abstained") and not row.get("error"))
+    ranked = sorted(groups.values(), key=lambda item: item["count"], reverse=True)[:limit]
+    return [{**item, "answer_rate": round(item["answered"] / item["count"], 4)} for item in ranked if item["count"] > 1]
 
 
 def _hours(rows: list[dict]) -> list[int]:
@@ -218,9 +300,11 @@ def inventory(store, tzs_per_usd: float, today: date | None = None) -> dict:
     today = today or date.today()
     tariff_rows = [record.payload for record in store.list_records("tariff")]
     profiles = {record.key: record.payload for record in store.list_records("park_profile")}
-    documents = store.list_documents()
-    chunks = store.all_chunks()
-    chunk_counts = Counter(chunk.document_id for chunk in chunks)
+    activities = [record.payload for record in store.list_records("activity")]
+    accommodation = [record.payload for record in store.list_records("accommodation")]
+    documents = store.list_documents(summary=True)
+    chunk_counts = {document_id: stats[0] for document_id, stats in store.chunk_stats().items()}
+    sources = store.source_status()
     docs_by_park = Counter(document.park_slug for document in documents if document.park_slug)
 
     rows_by_park: dict[str, list[dict]] = defaultdict(list)
@@ -280,18 +364,18 @@ def inventory(store, tzs_per_usd: float, today: date | None = None) -> dict:
 
     categories = Counter(row.get("category") for row in tariff_rows if _covers(row, today))
     visitors = Counter(row.get("visitor_label") or row.get("visitor") for row in tariff_rows if _covers(row, today))
-    needs_ocr = next((item.get("needs_ocr") for item in store.source_status() if item.get("needs_ocr")), []) or []
+    needs_ocr = next((item.get("needs_ocr") for item in sources if item.get("needs_ocr")), []) or []
     return {
         "as_of": today.isoformat(),
         "totals": {
             "parks": len(parks),
             "tariff_rows": len(tariff_rows),
             "tariff_rows_in_force": sum(categories.values()),
-            "activities": len(store.list_records("activity")),
-            "accommodation": len(store.list_records("accommodation")),
-            "fee_notes": len(store.list_records("fee_note")),
+            "activities": len(activities),
+            "accommodation": len(accommodation),
+            "fee_notes": store.count_records("fee_note"),
             "documents": len(documents),
-            "chunks": len(chunks),
+            "chunks": sum(chunk_counts.values()),
             "needs_ocr": len(needs_ocr),
         },
         "parks": parks,
@@ -303,10 +387,8 @@ def inventory(store, tzs_per_usd: float, today: date | None = None) -> dict:
         "documents_by_org": _top((document.organization for document in documents), 20),
         "documents_by_status": _top((document.status for document in documents), 20),
         "needs_ocr": needs_ocr,
-        "activities": [record.payload.get("title") for record in store.list_records("activity")],
-        "accommodation": [
-            {"title": record.payload.get("title"), "price_range": record.payload.get("price_range")} for record in store.list_records("accommodation")
-        ],
+        "activities": [payload.get("title") for payload in activities],
+        "accommodation": [{"title": payload.get("title"), "price_range": payload.get("price_range")} for payload in accommodation],
         "largest_documents": sorted(
             ({"document_id": document.document_id, "title": document.title, "chunks": chunk_counts.get(document.document_id, 0)} for document in documents),
             key=lambda item: -item["chunks"],

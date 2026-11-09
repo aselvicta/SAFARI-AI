@@ -17,11 +17,12 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from api.admin import log_harvest, router as admin_router
+from api.admin import log_harvest, router as admin_router, views, warm
 from api.security import login_router
 from services.analytics.events import Analytics
 from services.common.settings import ROOT, load_settings
@@ -104,12 +105,15 @@ async def _refresh_loop(app: FastAPI, hours: float) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = load_settings()
+    views.clear()
     app.state.assistant = build_assistant(settings)
     app.state.analytics = Analytics(settings.data_dir, app.state.assistant.store)
     app.state.limiter = RateLimiter()
     task = None
     if settings.refresh_hours > 0 and "PYTEST_CURRENT_TEST" not in os.environ:
         task = asyncio.create_task(_refresh_loop(app, settings.refresh_hours))
+    if "PYTEST_CURRENT_TEST" not in os.environ:
+        threading.Thread(target=warm, args=(app,), name="warm-dashboard", daemon=True).start()
     yield
     if task:
         task.cancel()
@@ -121,6 +125,8 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+# JSON for the dashboard (fee tables, document lists) shrinks 5-10x. Streams (text/event-stream) are left alone.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -260,31 +266,38 @@ def feedback(body: FeedbackRequest) -> dict:
 # Status and sources ---------------------------------------------------------
 
 
+def _counts() -> dict:
+    """Index sizes for health and status, counted in the database and cached per data version."""
+    store = app.state.assistant.store
+
+    def build() -> dict:
+        stats = store.chunk_stats()
+        return {
+            "documents": len(store.list_documents(summary=True)),
+            "chunks": sum(chunks for chunks, _ in stats.values()),
+            "parks": len(store.list_parks()),
+            "tariff_rows": store.count_records("tariff"),
+            "sources": store.source_status(),
+        }
+
+    return views.get(("counts", store.version), build)
+
+
 @app.get("/v1/health")
 def health() -> dict:
-    assistant = app.state.assistant
-    return {
-        "status": "ok",
-        "documents": len(assistant.store.list_documents()),
-        "parks": len(assistant.store.list_parks()),
-        "store": assistant.settings.store,
-    }
+    counts = _counts()
+    return {"status": "ok", "documents": counts["documents"], "parks": counts["parks"], "store": app.state.assistant.settings.store}
 
 
 @app.get("/v1/status")
 def status() -> dict:
     assistant = app.state.assistant
-    store = assistant.store
     return {
         "status": "ok",
-        "documents": len(store.list_documents()),
-        "chunks": len(store.all_chunks()),
-        "parks": len(store.list_parks()),
-        "tariff_rows": len(store.list_records("tariff")),
+        **_counts(),
         "store": assistant.settings.store,
         "llm_enabled": assistant.settings.llm_enabled,
         "llm_model": assistant.settings.llm_model if assistant.settings.llm_enabled else None,
-        "sources": store.source_status(),
     }
 
 
@@ -306,7 +319,7 @@ def documents() -> list[dict]:
             "park_slug": document.park_slug,
             "version": document.version,
         }
-        for document in app.state.assistant.store.list_documents()
+        for document in app.state.assistant.store.list_documents(summary=True)
     ]
 
 

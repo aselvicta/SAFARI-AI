@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { fetchHarvests, fetchStatus, runHarvest } from "../api";
-import { useLoad } from "../charts";
+import { queries, runHarvest } from "../api";
+import { useQuery } from "../charts";
+import { invalidate } from "../data";
 import { ago, dateTime, label, number } from "../format";
 import { Card, Empty, ErrorNote, Status, sourceTone } from "../ui";
 
@@ -16,8 +17,8 @@ function records(value) {
 }
 
 export default function Sources() {
-  const status = useLoad(fetchStatus, []);
-  const history = useLoad(fetchHarvests, []);
+  const status = useQuery(queries.status());
+  const history = useQuery(queries.harvests());
   const [running, setRunning] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -32,6 +33,7 @@ export default function Sources() {
       setNotice(failure.message);
     } finally {
       setRunning("");
+      invalidate("overview", "inventory", "documents", "fees", "parks");
       status.reload();
       history.reload();
     }

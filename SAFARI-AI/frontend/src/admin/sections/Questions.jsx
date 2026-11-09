@@ -1,9 +1,8 @@
 import { Fragment, useEffect, useState } from "react";
-import { fetchParks } from "../../api";
-import { downloadQuestionsCsv, fetchQuestions } from "../api";
-import { useLoad } from "../charts";
+import { downloadQuestionsCsv, queries } from "../api";
+import { useQuery } from "../charts";
 import { dateTime, label, ms } from "../format";
-import { Card, Empty, ErrorNote, Pager, Search, Select, Status } from "../ui";
+import { Card, Empty, ErrorNote, Pager, Search, Select, Skeleton, Status } from "../ui";
 
 const LIMIT = 50;
 const INTENTS = ["fee", "planning", "park_fact", "wildlife", "activity", "accommodation", "visa", "season", "rules", "safety", "contact", "scope", "unsupported", "general", "greeting", "error"];
@@ -26,32 +25,27 @@ export default function Questions({ days, params }) {
   const [q, setQ] = useState(params.q || "");
   const [intent, setIntent] = useState(params.intent || "");
   const [park, setPark] = useState(params.park || "");
-  const [result, setResult] = useState("");
+  const [result, setResult] = useState(params.outcome || "");
   const [offset, setOffset] = useState(0);
   const [open, setOpen] = useState(null);
-  const [parks, setParks] = useState([]);
   const [exportError, setExportError] = useState(null);
   const [search, setSearch] = useState(q);
 
-  useEffect(() => {
-    fetchParks().then((items) => setParks(Array.isArray(items) ? items : []));
-  }, []);
+  const parks = useQuery(queries.parks()).data || [];
   useEffect(() => {
     setQ(params.q || "");
     setSearch(params.q || "");
     setIntent(params.intent || "");
     setPark(params.park || "");
-  }, [params.q, params.intent, params.park]);
+    setResult(params.outcome || "");
+  }, [params.q, params.intent, params.park, params.outcome]);
   useEffect(() => {
     const timer = setTimeout(() => setQ(search), 250);
     return () => clearTimeout(timer);
   }, [search]);
   useEffect(() => setOffset(0), [q, intent, park, result, days]);
 
-  const { data, error, loading } = useLoad(
-    () => fetchQuestions({ days, q, intent, park, outcome: result, limit: LIMIT, offset }),
-    [days, q, intent, park, result, offset],
-  );
+  const { data, error, loading } = useQuery(queries.questions({ days, q, intent, park, outcome: result, limit: LIMIT, offset }));
   const names = Object.fromEntries(parks.map((item) => [item.slug, item.name.replace(/ National Park$/, "")]));
 
   async function exportCsv() {
@@ -144,8 +138,10 @@ export default function Questions({ days, params }) {
           </div>
         ) : data ? (
           <Empty>No questions match these filters.</Empty>
-        ) : null}
-        {data ? <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} /> : null}
+        ) : error ? null : (
+          <Skeleton layout="table" />
+        )}
+        {data ? <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} newer="← Newer" older="Older →" /> : null}
       </Card>
     </div>
   );

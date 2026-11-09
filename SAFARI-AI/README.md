@@ -44,6 +44,8 @@ From `backend/`:
 .venv/bin/python -m services.cli status
 .venv/bin/python -m services.cli evaluate
 .venv/bin/pytest
+# Postgres store tests too, against a scratch pgvector database:
+SAFARI_TEST_DATABASE_URL=postgresql://postgres:x@127.0.0.1:55432/postgres .venv/bin/pytest tests/test_postgres_store.py
 ```
 
 While it runs, the server refreshes the TANAPA API data every `SAFARI_REFRESH_HOURS` (default 12).

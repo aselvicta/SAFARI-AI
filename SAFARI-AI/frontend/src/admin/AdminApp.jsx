@@ -1,35 +1,65 @@
 // SafariAI admin dashboard: insights, the question log, feedback, TANAPA data and site management.
-import { useEffect, useState } from "react";
-import { AuthError, checkSession, login, onAuthError, saveToken } from "./api";
-import Documents from "./sections/Documents";
-import Feedback from "./sections/Feedback";
-import Fees from "./sections/Fees";
-import Insights from "./sections/Insights";
-import Overview from "./sections/Overview";
-import Parks from "./sections/Parks";
-import Questions from "./sections/Questions";
-import Sources from "./sections/Sources";
-import System from "./sections/System";
+import { Suspense, lazy, useEffect, useState } from "react";
+import { AuthError, checkSession, login, onAuthError, queries, saveToken } from "./api";
+import { invalidate, lastLoaded, onLoaded, prefetch, refreshAll } from "./data";
+import { ago } from "./format";
+import { Segmented, Skeleton } from "./ui";
 import "./admin.css";
 
+// Each section is its own chunk, loaded on first visit (and prefetched when its link is hovered).
+const load = {
+  overview: () => import("./sections/Overview"),
+  insights: () => import("./sections/Insights"),
+  questions: () => import("./sections/Questions"),
+  feedback: () => import("./sections/Feedback"),
+  parks: () => import("./sections/Parks"),
+  fees: () => import("./sections/Fees"),
+  documents: () => import("./sections/Documents"),
+  sources: () => import("./sections/Sources"),
+  system: () => import("./sections/System"),
+};
+
+// `data` lists the queries a section opens with, so hovering its link can warm them.
 const SECTIONS = [
-  { id: "overview", label: "Overview", group: "Monitor", component: Overview, period: true },
-  { id: "insights", label: "Insights", group: "Monitor", component: Insights, period: true },
-  { id: "questions", label: "Questions", group: "Monitor", component: Questions, period: true },
-  { id: "feedback", label: "Feedback", group: "Monitor", component: Feedback, period: true },
-  { id: "parks", label: "Parks", group: "TANAPA data", component: Parks },
-  { id: "fees", label: "Fees & tariffs", group: "TANAPA data", component: Fees },
-  { id: "documents", label: "Documents", group: "Manage", component: Documents },
-  { id: "sources", label: "Sources & sync", group: "Manage", component: Sources },
-  { id: "system", label: "System & quality", group: "Manage", component: System },
-];
+  { id: "overview", label: "Overview", group: "Monitor", period: true, skeleton: "overview", data: (days) => [queries.overview(days)] },
+  { id: "insights", label: "Insights", group: "Monitor", period: true, skeleton: "insights", data: (days) => [queries.overview(days)] },
+  { id: "questions", label: "Questions", group: "Monitor", period: true, skeleton: "table", data: (days) => [queries.questions({ days, limit: 50, offset: 0 }), queries.parks()] },
+  { id: "feedback", label: "Feedback", group: "Monitor", period: true, skeleton: "table", data: (days) => [queries.feedback({ days, limit: 25, offset: 0 })] },
+  { id: "parks", label: "Parks", group: "TANAPA data", skeleton: "cards", data: () => [queries.inventory()] },
+  { id: "fees", label: "Fees & tariffs", group: "TANAPA data", skeleton: "table", data: () => [queries.inventory(), queries.parks()] },
+  { id: "documents", label: "Documents", group: "Manage", skeleton: "table", data: () => [queries.documents(), queries.inventory()] },
+  { id: "sources", label: "Sources & sync", group: "Manage", skeleton: "table", data: () => [queries.status(), queries.harvests()] },
+  { id: "system", label: "System & quality", group: "Manage", skeleton: "cards", data: () => [queries.system(), queries.evaluation()] },
+].map((section) => ({ ...section, component: lazy(load[section.id]) }));
+
 const PERIODS = [
-  [1, "Today"],
-  [7, "Last 7 days"],
-  [30, "Last 30 days"],
-  [90, "Last 90 days"],
-  [365, "Last 12 months"],
+  [1, "Today", "Today"],
+  [7, "7D", "Last 7 days"],
+  [30, "30D", "Last 30 days"],
+  [90, "90D", "Last 90 days"],
+  [365, "12M", "Last 12 months"],
 ];
+
+// 16px line icons, drawn on a 24px grid.
+const ICONS = {
+  overview: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z",
+  insights: "M4 20V10M10 20V4M16 20v-7M22 20H2",
+  questions: "M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z",
+  feedback: "M7 11v9H4v-9zM7 11l4-8a2 2 0 0 1 3 2l-1 5h6a2 2 0 0 1 2 2l-2 7a2 2 0 0 1-2 1H7",
+  parks: "M3 20l6-11 4 7 3-4 5 8zM15 6a2 2 0 1 0 0-.01",
+  fees: "M3 12V4h8l10 10-8 8zM7.5 8a.5.5 0 1 0 0-.01",
+  documents: "M6 2h9l5 5v15H6zM14 2v6h6M9 13h8M9 17h8",
+  sources: "M20 7a9 9 0 0 0-15.5 1M4 4v4h4M4 17a9 9 0 0 0 15.5-1M20 20v-4h-4",
+  system: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z",
+};
+
+function Icon({ name }) {
+  return (
+    <svg className="nav-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d={ICONS[name]} />
+    </svg>
+  );
+}
 
 function sectionFromHash() {
   const [id, query = ""] = window.location.hash.replace(/^#\/?/, "").split("?");
@@ -39,6 +69,13 @@ function sectionFromHash() {
 export function go(id, params = {}) {
   const query = new URLSearchParams(params).toString();
   window.location.hash = `/${id}${query ? `?${query}` : ""}`;
+}
+
+const idle = (callback) => (window.requestIdleCallback ? window.requestIdleCallback(callback, { timeout: 2500 }) : setTimeout(callback, 600));
+
+function warmSection(section, days) {
+  load[section.id]().catch(() => {});
+  section.data(days).forEach((query) => prefetch(query));
 }
 
 function SignIn({ message, onSignedIn }) {
@@ -87,11 +124,36 @@ function SignIn({ message, onSignedIn }) {
   );
 }
 
+/** "Updated 2 min ago", ticking, from the last query that finished loading. */
+function Freshness({ refreshing, onRefresh }) {
+  const [at, setAt] = useState(lastLoaded);
+  const [, setNow] = useState(0);
+  useEffect(() => onLoaded(setAt), []);
+  useEffect(() => {
+    const timer = setInterval(() => setNow((value) => value + 1), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <div className="dash-freshness">
+      <span className="dash-updated" aria-live="polite">
+        {refreshing ? "Refreshing…" : at ? `Updated ${ago(new Date(at).toISOString())}` : ""}
+      </span>
+      <button type="button" className="dash-button dash-refresh" onClick={onRefresh} disabled={refreshing} title="Reload the numbers on this page">
+        <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d={ICONS.sources} />
+        </svg>
+        Refresh
+      </button>
+    </div>
+  );
+}
+
 export default function AdminApp() {
   const [route, setRoute] = useState(sectionFromHash);
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(() => Number(sessionStorage.getItem("safari.adminDays")) || 30);
   const [auth, setAuth] = useState({ state: "checking", message: "", tokenRequired: false });
   const [menuOpen, setMenuOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     document.title = "Admin · SafariAI Tanzania";
@@ -106,23 +168,44 @@ export default function AdminApp() {
 
   useEffect(() => {
     if (auth.state !== "checking") return;
+    // Start the first section's data with the session check instead of after it.
+    sectionFor(route.id).data(days).forEach((query) => prefetch(query));
     checkSession()
       .then((result) => setAuth({ state: "ok", message: "", tokenRequired: result.token_required }))
       .catch((error) =>
         setAuth((current) => (current.state === "signed-out" ? current : { state: "signed-out", message: error instanceof AuthError ? "" : error.message, tokenRequired: true })),
       );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.state]);
+
+  // Once the first page is up, warm the pages people open next.
+  useEffect(() => {
+    if (auth.state !== "ok") return;
+    idle(() => ["overview", "insights", "questions", "feedback"].forEach((id) => warmSection(sectionFor(id), days)));
+  }, [auth.state, days]);
+
+  useEffect(() => {
+    sessionStorage.setItem("safari.adminDays", String(days));
+  }, [days]);
 
   if (auth.state === "checking") return <main className="dash-signin" aria-busy="true" />;
   if (auth.state === "signed-out") {
-    return (
-      <SignIn message={auth.message} onSignedIn={() => setAuth({ state: "checking", message: "", tokenRequired: true })} />
-    );
+    return <SignIn message={auth.message} onSignedIn={() => setAuth({ state: "checking", message: "", tokenRequired: true })} />;
   }
 
-  const section = SECTIONS.find((item) => item.id === route.id);
+  const section = sectionFor(route.id);
   const Section = section.component;
   const groups = [...new Set(SECTIONS.map((item) => item.group))];
+
+  function reloadAll() {
+    setRefreshing(true);
+    const stop = onLoaded(() => {
+      stop();
+      setRefreshing(false);
+    });
+    refreshAll();
+    setTimeout(() => setRefreshing(false), 15_000);
+  }
 
   return (
     <div className="dash">
@@ -139,7 +222,14 @@ export default function AdminApp() {
             <div key={group} className="dash-nav-group">
               <span className="dash-nav-title">{group}</span>
               {SECTIONS.filter((item) => item.group === group).map((item) => (
-                <a key={item.id} href={`#/${item.id}`} aria-current={item.id === route.id ? "page" : undefined}>
+                <a
+                  key={item.id}
+                  href={`#/${item.id}`}
+                  aria-current={item.id === route.id ? "page" : undefined}
+                  onPointerEnter={() => warmSection(item, days)}
+                  onFocus={() => warmSection(item, days)}
+                >
+                  <Icon name={item.id} />
                   {item.label}
                 </a>
               ))}
@@ -156,6 +246,7 @@ export default function AdminApp() {
               className="dash-link"
               onClick={() => {
                 saveToken("");
+                invalidate();
                 setAuth({ state: "signed-out", message: "Signed out.", tokenRequired: true });
               }}
             >
@@ -166,32 +257,33 @@ export default function AdminApp() {
           )}
         </div>
       </aside>
+      {menuOpen ? <button type="button" className="dash-scrim" aria-label="Close menu" onClick={() => setMenuOpen(false)} /> : null}
       <div className="dash-main">
         <header className="dash-top">
-          <button type="button" className="dash-menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>
-            Menu
+          <button type="button" className="dash-menu" aria-expanded={menuOpen} aria-label="Menu" onClick={() => setMenuOpen((value) => !value)}>
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
           </button>
-          <div>
+          <div className="dash-title">
             <span className="dash-eyebrow">{section.group}</span>
             <h1>{section.label}</h1>
           </div>
-          {section.period ? (
-            <label className="dash-field dash-period">
-              <span>Period</span>
-              <select value={days} onChange={(event) => setDays(Number(event.target.value))}>
-                {PERIODS.map(([value, text]) => (
-                  <option key={value} value={value}>
-                    {text}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
+          <div className="dash-top-tools">
+            {section.period ? <Segmented label="Period" options={PERIODS} value={days} onChange={setDays} /> : null}
+            <Freshness refreshing={refreshing} onRefresh={reloadAll} />
+          </div>
         </header>
         <main className="dash-content">
-          <Section days={days} params={route.params} go={go} />
+          <Suspense fallback={<Skeleton layout={section.skeleton} />}>
+            <Section days={days} params={route.params} go={go} />
+          </Suspense>
         </main>
       </div>
     </div>
   );
+}
+
+function sectionFor(id) {
+  return SECTIONS.find((item) => item.id === id) || SECTIONS[0];
 }

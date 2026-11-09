@@ -1,14 +1,17 @@
-import { useState } from "react";
-import { deleteDocument, fetchDocuments, fetchInventory, uploadDocument } from "../api";
-import { BarList, useLoad } from "../charts";
+import { useEffect, useState } from "react";
+import { deleteDocument, queries, uploadDocument } from "../api";
+import { BarList, useQuery } from "../charts";
+import { invalidate } from "../data";
 import { compact, dateTime, label, number } from "../format";
-import { Card, Empty, ErrorNote, Search, Select, Status } from "../ui";
+import { Card, Empty, ErrorNote, Pager, Search, Select, Skeleton, Status } from "../ui";
 
+const PAGE = 25;
 const TYPES = ["", "tariff", "guideline", "procedure", "brochure", "regulation", "manual", "newsletter", "act", "policy"];
 
 export default function Documents() {
-  const { data, error, loading, reload } = useLoad(fetchDocuments, []);
-  const inventory = useLoad(fetchInventory, []);
+  const { data, error, loading, reload } = useQuery(queries.documents());
+  const inventory = useQuery(queries.inventory());
+  const [offset, setOffset] = useState(0);
   const [search, setSearch] = useState("");
   const [type, setType] = useState("");
   const [authority, setAuthority] = useState("");
@@ -32,6 +35,7 @@ export default function Documents() {
       const result = await uploadDocument(file, metadata);
       setNotice(`Indexed ${result.title} as a ${result.document_type}.`);
       form.reset();
+      invalidate("documents", "inventory", "overview", "status");
       reload();
       inventory.reload();
     } catch (failure) {
@@ -46,6 +50,7 @@ export default function Documents() {
     try {
       const result = await deleteDocument(document.document_id);
       setNotice(result.message);
+      invalidate("documents", "inventory", "overview", "status");
       reload();
       inventory.reload();
     } catch (failure) {
@@ -62,6 +67,7 @@ export default function Documents() {
       (!authority || document.authority === authority),
   );
   const stock = inventory.data;
+  useEffect(() => setOffset(0), [search, type, authority]);
 
   return (
     <div className="dash-stack">
@@ -151,8 +157,10 @@ export default function Documents() {
         <Select label="Authority" value={authority} onChange={setAuthority} options={[["", "Any authority"], ...[...new Set(documents.map((item) => item.authority))].sort()]} />
       </div>
       <ErrorNote error={error} />
-      <Card title={`${shown.length} of ${documents.length} documents`} className={loading ? "refreshing" : ""}>
-        {shown.length ? (
+      <Card title={data ? `${shown.length} of ${documents.length} documents` : "Documents"} className={loading ? "refreshing" : ""}>
+        {!data && !error ? (
+          <Skeleton layout="table" />
+        ) : shown.length ? (
           <div className="table-wrap tall">
             <table className="dash-table">
               <thead>
@@ -167,7 +175,7 @@ export default function Documents() {
                 </tr>
               </thead>
               <tbody>
-                {shown.map((document) => (
+                {shown.slice(offset, offset + PAGE).map((document) => (
                   <tr key={document.document_id}>
                     <td>
                       {document.source_url ? (
@@ -205,6 +213,7 @@ export default function Documents() {
         ) : (
           <Empty>No documents match.</Empty>
         )}
+        <Pager total={shown.length} limit={PAGE} offset={offset} onChange={setOffset} />
       </Card>
     </div>
   );

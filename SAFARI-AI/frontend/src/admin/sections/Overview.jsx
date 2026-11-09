@@ -1,19 +1,54 @@
 import { useState } from "react";
-import { fetchOverview, runHarvest } from "../api";
-import { BarList, TimeSeries, useLoad } from "../charts";
-import { ago, compact, label, ms, number, percent } from "../format";
-import { Card, ErrorNote, Status, StatTile, sourceTone } from "../ui";
+import { queries, runHarvest } from "../api";
+import { BarList, SegmentedBar, ShareMeter, TimeSeries, useQuery } from "../charts";
+import { invalidate } from "../data";
+import { ago, compact, formatDay, label, ms, number, percent } from "../format";
+import { AlertStrip, Card, Empty, ErrorNote, Skeleton, Status, StatTile, sourceTone } from "../ui";
 
 export const SERIES = {
   questions: { key: "questions", label: "Questions", color: "var(--viz-1)", area: true },
   abstained: { key: "abstained", label: "Declined", color: "var(--viz-2)" },
 };
 
-const ALERT_TONE = { critical: "critical", warning: "warning", info: "info" };
+// Outcomes are states, so they wear the status colours, always beside an icon and a label.
+export const OUTCOMES = {
+  answered: { label: "Answered", color: "var(--good)", tone: "ok" },
+  low_confidence: { label: "Low confidence", color: "var(--warning)", tone: "warning", ink: "#0b0b0b" },
+  declined: { label: "Declined", color: "var(--serious)", tone: "serious" },
+  failed: { label: "Failed", color: "var(--critical)", tone: "critical" },
+};
+
 const ACTION_LABEL = { harvest: "Sync now", documents: "Documents", parks: "Parks", insights: "Insights", questions: "Questions", feedback: "Review", system: "System", sources: "Sources" };
 
+export function OutcomePanel({ outcomes }) {
+  const total = outcomes.reduce((sum, item) => sum + item.count, 0);
+  const parts = outcomes.map((item) => ({ key: item.key, count: item.count, ...OUTCOMES[item.key] }));
+  return (
+    <div className="outcomes">
+      <SegmentedBar parts={parts} label="How questions ended" />
+      <ul className="outcome-list">
+        {parts.map((part) => (
+          <li key={part.key}>
+            <Status tone={part.tone}>{part.label}</Status>
+            <span className="outcome-count">{number(part.count)}</span>
+            <span className="outcome-share">{total ? percent(part.count / total) : "—"}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function tariffState(windows) {
+  const current = (windows || []).filter((window) => window.state === "in_force" && window.days_left != null);
+  const soonest = current.sort((a, b) => a.days_left - b.days_left)[0];
+  const upcoming = (windows || []).some((window) => window.state === "upcoming");
+  if (!soonest) return null;
+  return { until: soonest.valid_until, days: soonest.days_left, upcoming };
+}
+
 export default function Overview({ days, go }) {
-  const { data, error, loading, reload } = useLoad(() => fetchOverview(days), [days]);
+  const { data, error, loading } = useQuery(queries.overview(days));
   const [syncing, setSyncing] = useState("");
 
   async function sync() {
@@ -21,89 +56,111 @@ export default function Overview({ days, go }) {
     try {
       const result = await runHarvest(false);
       setSyncing(result.message);
-      reload();
+      invalidate("overview", "inventory", "status");
     } catch (failure) {
       setSyncing(failure.message);
     }
   }
 
-  if (!data) return <ErrorNote error={error} />;
+  if (!data) return error ? <ErrorNote error={error} /> : <Skeleton layout="overview" />;
   const now = data.kpis.current;
   const before = data.kpis.previous;
   const totals = data.inventory_totals;
+  const tariff = tariffState(data.tariff_windows);
+  const trend = (field, format) => ({ rows: data.series, field, format });
 
   return (
     <div className={`dash-stack ${loading ? "refreshing" : ""}`}>
       <ErrorNote error={error} />
-      {data.alerts.length ? (
-        <Card title="Needs attention" subtitle={`${data.alerts.length} item${data.alerts.length === 1 ? "" : "s"}`}>
-          <ul className="alert-list">
-            {data.alerts.map((alert) => (
-              <li key={alert.title} className={`alert alert-${alert.level}`}>
-                <Status tone={ALERT_TONE[alert.level]}>{label(alert.level)}</Status>
-                <div>
-                  <strong>{alert.title}</strong>
-                  <p>{alert.detail}</p>
-                </div>
-                {alert.action === "harvest" ? (
-                  <button type="button" className="dash-button" onClick={sync} disabled={Boolean(syncing) && syncing.endsWith("…")}>
-                    {ACTION_LABEL.harvest}
-                  </button>
-                ) : alert.action ? (
-                  <button type="button" className="dash-button" onClick={() => go(alert.action)}>
-                    {ACTION_LABEL[alert.action] || "Open"}
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          {syncing ? <p className="dash-notice" role="status">{syncing}</p> : null}
-        </Card>
-      ) : null}
+      <AlertStrip
+        alerts={data.alerts}
+        renderAction={(alert) =>
+          alert.action === "harvest" ? (
+            <button type="button" className="dash-button small" onClick={sync} disabled={syncing.endsWith("…")}>
+              {ACTION_LABEL.harvest}
+            </button>
+          ) : alert.action ? (
+            <button type="button" className="dash-button small" onClick={() => go(alert.action)}>
+              {ACTION_LABEL[alert.action] || "Open"}
+            </button>
+          ) : null
+        }
+      />
+      {syncing ? <p className="dash-notice" role="status">{syncing}</p> : null}
 
-      <div className="hero-row">
-        <div className="hero-figure">
-          <span className="stat-label">Visitor questions</span>
-          <span className="hero-value">{number(now.questions)}</span>
-          <span className="stat-hint">
-            {number(now.sessions)} visitor sessions · {now.questions_per_session ? number(now.questions_per_session, 1) : "—"} per session
-          </span>
-        </div>
-        <div className="stat-grid">
-          <StatTile label="Sessions" value={number(now.sessions)} current={now.sessions} previous={before.sessions} />
-          <StatTile label="Answer rate" value={percent(now.answer_rate)} current={now.answer_rate} previous={before.answer_rate} kind="share" />
-          <StatTile label="Visitor satisfaction" value={percent(now.satisfaction)} hint={`${number(now.feedback)} rating${now.feedback === 1 ? "" : "s"}`} />
-          <StatTile label="Median response" value={ms(now.median_latency_ms)} current={now.median_latency_ms} previous={before.median_latency_ms} goodWhen="down" />
-          <StatTile label="Answered by LLM agent" value={percent(now.agent_share)} hint={data.llm_enabled ? "rest by the composer" : "agent is off"} />
-          <StatTile label="Answers with citations" value={percent(now.cited_share)} current={now.cited_share} previous={before.cited_share} kind="share" />
-        </div>
+      <div className="kpi-band">
+        <StatTile
+          hero
+          label="Visitor questions"
+          value={number(now.questions)}
+          current={now.questions}
+          previous={before.questions}
+          hint={`${number(now.sessions)} sessions · ${now.questions_per_session ? number(now.questions_per_session, 1) : "—"} per session`}
+          trend={trend("questions")}
+        />
+        <StatTile label="Sessions" value={number(now.sessions)} current={now.sessions} previous={before.sessions} trend={trend("sessions")} />
+        <StatTile label="Answer rate" value={percent(now.answer_rate)} current={now.answer_rate} previous={before.answer_rate} kind="share" trend={trend("answer_rate", (value) => percent(value))} />
+        <StatTile label="Median response" value={ms(now.median_latency_ms)} current={now.median_latency_ms} previous={before.median_latency_ms} goodWhen="down" trend={trend("median_latency_ms", ms)} />
+        <StatTile label="Visitor satisfaction" value={percent(now.satisfaction)} hint={`${number(now.feedback)} rating${now.feedback === 1 ? "" : "s"}${now.feedback_open ? ` · ${now.feedback_open} to review` : ""}`} />
       </div>
 
-      <Card title="Questions per day" subtitle="East Africa Time. Declined means the official sources did not cover the question.">
-        <TimeSeries rows={data.series} series={[SERIES.questions, SERIES.abstained]} label="Questions and declined answers per day" />
-      </Card>
+      <div className="dash-grid main-side">
+        <Card title="Questions per day" subtitle="East Africa Time. Declined: the official sources did not cover the question.">
+          <TimeSeries rows={data.series} series={[SERIES.questions, SERIES.abstained]} label="Questions and declined answers per day" height={264} />
+        </Card>
+        <Card title="Answer quality" subtitle="How each question ended" actions={<button type="button" className="dash-link" onClick={() => go("insights", { tab: "quality" })}>Details →</button>}>
+          <OutcomePanel outcomes={data.outcomes} />
+          <div className="meter-stack">
+            <ShareMeter label="Answers with citations" value={now.cited_share} />
+            <ShareMeter label="Written by the LLM agent" value={now.agent_share} hint={data.llm_enabled ? "The rest by the template composer" : "Agent is off: set DEEPSEEK_API_KEY"} />
+          </div>
+        </Card>
+      </div>
 
-      <div className="dash-grid two">
-        <Card title="Most asked-about parks" actions={<button type="button" className="dash-link" onClick={() => go("insights")}>All insights →</button>}>
-          <BarList items={data.parks} limit={8} empty="No park has been asked about in this period." onSelect={(item) => go("questions", { park: item.key })} />
+      <div className="dash-grid three">
+        <Card title="Most asked-about parks" actions={<button type="button" className="dash-link" onClick={() => go("insights", { tab: "content" })}>All parks →</button>}>
+          <BarList items={data.parks.map((item) => ({ ...item, label: item.label.replace(/ National Park$/, "") }))} limit={7} empty="No park has been asked about in this period." onSelect={(item) => go("questions", { park: item.key })} />
         </Card>
         <Card title="What visitors ask about">
-          <BarList items={data.intents.map((item) => ({ ...item, label: label(item.key) }))} limit={8} onSelect={(item) => go("questions", { intent: item.key })} />
+          <BarList items={data.intents.map((item) => ({ ...item, label: label(item.key) }))} limit={7} onSelect={(item) => go("questions", { intent: item.key })} />
+        </Card>
+        <Card title="Top questions" subtitle="Asked more than once">
+          {data.top_questions.length ? (
+            <ol className="rank-list">
+              {data.top_questions.slice(0, 7).map((item) => (
+                <li key={item.question}>
+                  <button type="button" className="dash-link left" onClick={() => go("questions", { q: item.question.slice(0, 60) })} title={item.question}>
+                    {item.question}
+                  </button>
+                  <span className="rank-count">{number(item.count)}×</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <Empty>No question has been repeated yet.</Empty>
+          )}
         </Card>
       </div>
 
       <div className="dash-grid two">
-        <Card title="Data from tanzaniaparks.go.tz" actions={<button type="button" className="dash-link" onClick={() => go("parks")}>Parks →</button>}>
+        <Card title="Knowledge base" subtitle="Data from tanzaniaparks.go.tz and official PDFs" actions={<button type="button" className="dash-link" onClick={() => go("fees")}>Fees →</button>}>
           <dl className="kv-grid">
             <div><dt>Parks</dt><dd>{number(totals.parks)}</dd></div>
             <div><dt>Fee rows in force</dt><dd>{compact(totals.tariff_rows_in_force)}</dd></div>
-            <div><dt>All fee rows</dt><dd>{compact(totals.tariff_rows)}</dd></div>
-            <div><dt>Activities</dt><dd>{number(totals.activities)}</dd></div>
-            <div><dt>Accommodation types</dt><dd>{number(totals.accommodation)}</dd></div>
-            <div><dt>Documents indexed</dt><dd>{number(totals.documents)}</dd></div>
+            <div><dt>Documents</dt><dd>{number(totals.documents)}</dd></div>
             <div><dt>Search chunks</dt><dd>{compact(totals.chunks)}</dd></div>
+            <div><dt>Activities</dt><dd>{number(totals.activities)}</dd></div>
             <div><dt>Scanned PDFs (no text)</dt><dd>{number(totals.needs_ocr)}</dd></div>
           </dl>
+          {tariff ? (
+            <p className="tariff-line">
+              <Status tone={tariff.days > 60 || tariff.upcoming ? "ok" : "warning"}>{tariff.days > 60 || tariff.upcoming ? "Tariff current" : "Tariff ending"}</Status>
+              <span>
+                Valid until {formatDay(tariff.until, true)} {tariff.until.slice(0, 4)} · {number(tariff.days)} days left
+                {tariff.upcoming ? " · next tariff published" : ""}
+              </span>
+            </p>
+          ) : null}
         </Card>
         <Card title="Source health" actions={<button type="button" className="dash-link" onClick={() => go("sources")}>Sources →</button>}>
           <ul className="source-mini">

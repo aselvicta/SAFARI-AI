@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import logging
 import json
 import platform
 import re
@@ -20,6 +21,7 @@ from pydantic import BaseModel, Field
 from api.security import auth_required, login_enabled, require_admin
 from services.analytics import insights
 from services.analytics.events import JsonDoc, open_lines
+from services.common.memo import Memo
 from services.common.settings import load_settings
 from services.common.text import parse_date
 
@@ -29,6 +31,11 @@ STARTED_AT = datetime.now(timezone.utc)
 CSV_FIELDS = ["at", "question", "intent", "language", "parks", "recommended", "generator", "abstained", "confidence_label", "citations", "latency_ms", "passport", "visitor_class", "days", "adults", "children", "channel", "error"]
 
 router = APIRouter(dependencies=[Depends(require_admin)])
+log = logging.getLogger("safari.admin")
+
+# Dashboard views are computed once per data version and served from memory until the store or the
+# analytics change (or `ttl` passes). Keys carry those versions, so a write never shows stale numbers.
+views = Memo(ttl=300, size=96)
 
 
 class ReviewRequest(BaseModel):
@@ -78,16 +85,56 @@ def session(request: Request) -> dict:
     return {"ok": True, "token_required": auth_required(settings), "username": settings.admin_username if login_enabled(settings) else None}
 
 
-@router.get("/v1/admin/overview")
-def overview(request: Request, days: int = Query(30, ge=1, le=365)) -> dict:
-    assistant = _assistant(request)
-    stats = insights.overview(_analytics(request), _park_names(assistant.store), days)
-    stock = insights.inventory(assistant.store, assistant.settings.tzs_per_usd)
-    stats["alerts"] = insights.alerts(assistant.store, assistant.settings, stats, stock)
+def cached_inventory(assistant, as_of: date | None = None) -> dict:
+    day = as_of or date.today()
+    return views.get(
+        ("inventory", assistant.store.version, day.isoformat()),
+        lambda: insights.inventory(assistant.store, assistant.settings.tzs_per_usd, day),
+    )
+
+
+def _build_overview(assistant, analytics, days: int) -> dict:
+    store = assistant.store
+    stats = insights.overview(analytics, _park_names(store), days)
+    stock = cached_inventory(assistant)
+    stats["alerts"] = insights.alerts(store, assistant.settings, stats, stock)
     stats["inventory_totals"] = stock["totals"]
-    stats["sources"] = assistant.store.source_status()
+    stats["tariff_windows"] = stock["tariff_windows"]
+    stats["sources"] = store.source_status()
     stats["llm_enabled"] = assistant.settings.llm_enabled
     return stats
+
+
+def overview_view(assistant, analytics, days: int, fresh: bool = False) -> dict:
+    """The overview for `days`, served stale-while-revalidate: a new question or harvest never makes the
+    dashboard wait. `fresh` recomputes before answering (the Refresh button)."""
+    key = ("overview", days)
+    version = (analytics.version, assistant.store.version)
+    compute = lambda: _build_overview(assistant, analytics, days)  # noqa: E731
+    if fresh:
+        return views.refresh(key, version, compute)
+    return views.serve(key, version, compute, max_age=60)
+
+
+@router.get("/v1/admin/overview")
+def overview(request: Request, days: int = Query(30, ge=1, le=365), fresh: bool = False) -> dict:
+    return overview_view(_assistant(request), _analytics(request), days, fresh)
+
+
+def warm(app) -> None:
+    """Fill the dashboard caches after start, so the first admin visit doesn't wait for them."""
+    assistant, analytics = app.state.assistant, app.state.analytics
+    started = time.perf_counter()
+    try:
+        cached_inventory(assistant)
+        overview_view(assistant, analytics, 30)
+        _fee_table(assistant)
+        views.get(("documents", assistant.store.version), lambda: _document_rows(assistant.store))
+        for days in (7, 90):  # the other common periods, after the default is ready
+            overview_view(assistant, analytics, days)
+        log.info("dashboard caches warm in %.1fs", time.perf_counter() - started)
+    except Exception:
+        log.exception("warming dashboard caches failed")
 
 
 @router.get("/v1/admin/questions")
@@ -122,7 +169,14 @@ def questions_csv(request: Request, days: int | None = Query(None, ge=1, le=365)
 
 
 @router.get("/v1/admin/feedback")
-def feedback(request: Request, status: str = "", rating: int | None = Query(None, ge=-1, le=1), days: int | None = Query(None, ge=1, le=365)) -> dict:
+def feedback(
+    request: Request,
+    status: str = "",
+    rating: int | None = Query(None, ge=-1, le=1),
+    days: int | None = Query(None, ge=1, le=365),
+    limit: int = Query(25, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict:
     items = _analytics(request).feedback_items(days)
     counts = {
         "total": len(items),
@@ -134,7 +188,8 @@ def feedback(request: Request, status: str = "", rating: int | None = Query(None
         items = [item for item in items if item["review_status"] == status]
     if rating is not None:
         items = [item for item in items if item["rating"] == rating]
-    return {"counts": counts, "items": list(reversed(items))}
+    newest_first = list(reversed(items))
+    return {"counts": counts, "total": len(newest_first), "items": newest_first[offset : offset + limit]}
 
 
 @router.post("/v1/admin/feedback/{feedback_id}")
@@ -150,8 +205,30 @@ def review_feedback(feedback_id: str, body: ReviewRequest, request: Request) -> 
 
 @router.get("/v1/admin/inventory")
 def inventory(request: Request, as_of: date | None = None) -> dict:
-    assistant = _assistant(request)
-    return insights.inventory(assistant.store, assistant.settings.tzs_per_usd, as_of)
+    return cached_inventory(_assistant(request), as_of)
+
+
+def _fee_table(assistant) -> dict:
+    """Every tariff row with its validity state and USD estimate, plus the filter options. Cached per data version."""
+
+    def build() -> dict:
+        today = date.today()
+        rate = assistant.settings.tzs_per_usd
+        rows = []
+        for record in assistant.store.list_records("tariff"):
+            row = record.payload
+            start, end = parse_date(row.get("valid_from")), parse_date(row.get("valid_until"))
+            row_state = "upcoming" if start and start > today else "expired" if end and end < today else "in_force"
+            usd = round(float(row.get("amount") or 0) / rate, 2) if row.get("currency") == "TZS" else None
+            rows.append({**row, "state": row_state, "usd": usd, "_text": f"{row.get('product', '')} {row.get('item', '')} {row.get('park_name', '')}".lower()})
+        rows.sort(key=lambda row: (row.get("park_name") or "", row.get("category") or "", row.get("item") or "", row.get("visitor") or "", row.get("valid_from") or ""))
+        return {
+            "rows": rows,
+            "categories": sorted({row.get("category") for row in rows if row.get("category")}),
+            "visitors": sorted({row.get("visitor") for row in rows if row.get("visitor")}),
+        }
+
+    return views.get(("fees", assistant.store.version, date.today().isoformat()), build)
 
 
 @router.get("/v1/admin/fees")
@@ -162,36 +239,28 @@ def fee_rows(
     visitor: str = "",
     state: Literal["", "in_force", "upcoming", "expired"] = "",
     q: str = "",
-    limit: int = Query(200, ge=1, le=3000),
+    limit: int = Query(50, ge=1, le=3000),
+    offset: int = Query(0, ge=0),
 ) -> dict:
     assistant = _assistant(request)
-    today = date.today()
-    rate = assistant.settings.tzs_per_usd
+    table = _fee_table(assistant)
     needle = q.strip().lower()
-    rows = []
-    for record in assistant.store.list_records("tariff"):
-        row = record.payload
-        if park and row.get("park_slug") != park:
-            continue
-        if category and row.get("category") != category:
-            continue
-        if visitor and row.get("visitor") != visitor:
-            continue
-        start, end = parse_date(row.get("valid_from")), parse_date(row.get("valid_until"))
-        row_state = "upcoming" if start and start > today else "expired" if end and end < today else "in_force"
-        if state and row_state != state:
-            continue
-        if needle and needle not in f"{row.get('product', '')} {row.get('item', '')} {row.get('park_name', '')}".lower():
-            continue
-        rows.append({**row, "state": row_state, "usd": round(float(row.get("amount") or 0) / rate, 2) if row.get("currency") == "TZS" else None})
-    rows.sort(key=lambda row: (row.get("park_name") or "", row.get("category") or "", row.get("item") or "", row.get("visitor") or "", row.get("valid_from") or ""))
-    all_rows = [record.payload for record in assistant.store.list_records("tariff")]
+    rows = [
+        row
+        for row in table["rows"]
+        if (not park or row.get("park_slug") == park)
+        and (not category or row.get("category") == category)
+        and (not visitor or row.get("visitor") == visitor)
+        and (not state or row["state"] == state)
+        and (not needle or needle in row["_text"])
+    ]
     return {
         "total": len(rows),
-        "rows": rows[:limit],
-        "categories": sorted({row.get("category") for row in all_rows if row.get("category")}),
-        "visitors": sorted({row.get("visitor") for row in all_rows if row.get("visitor")}),
-        "tzs_per_usd": rate,
+        "offset": offset,
+        "rows": [{key: value for key, value in row.items() if key != "_text"} for row in rows[offset : offset + limit]],
+        "categories": table["categories"],
+        "visitors": table["visitors"],
+        "tzs_per_usd": assistant.settings.tzs_per_usd,
     }
 
 
@@ -201,11 +270,11 @@ def fee_rows(
 @router.get("/v1/admin/documents")
 def documents(request: Request) -> list[dict]:
     store = _assistant(request).store
-    chunk_counts: dict[str, int] = {}
-    characters: dict[str, int] = {}
-    for chunk in store.all_chunks():
-        chunk_counts[chunk.document_id] = chunk_counts.get(chunk.document_id, 0) + 1
-        characters[chunk.document_id] = characters.get(chunk.document_id, 0) + len(chunk.text)
+    return views.get(("documents", store.version), lambda: _document_rows(store))
+
+
+def _document_rows(store) -> list[dict]:
+    stats = store.chunk_stats()
     return [
         {
             "document_id": document.document_id,
@@ -222,10 +291,10 @@ def documents(request: Request) -> list[dict]:
             "source_url": document.source_url,
             "park_slug": document.park_slug,
             "version": document.version,
-            "chunks": chunk_counts.get(document.document_id, 0),
-            "characters": characters.get(document.document_id, 0),
+            "chunks": stats.get(document.document_id, (0, 0))[0],
+            "characters": stats.get(document.document_id, (0, 0))[1],
         }
-        for document in store.list_documents()
+        for document in store.list_documents(summary=True)
     ]
 
 

@@ -17,6 +17,10 @@ from services.common.settings import ROOT
 
 # Every statement in it is idempotent, so it runs on each start and a fresh database needs no manual setup.
 SCHEMA_FILE = ROOT / "postgres" / "init.sql"
+SUMMARY_COLUMNS = (
+    "document_id, title, organization, document_type, language, authority, authority_score, status, version, "
+    "published_date, effective_from, effective_until, retrieved_at, source_url, park_slug"
+)
 IDLE_PING_S = 30  # seconds a connection may sit unused before it is checked
 SCHEMA_LOCK_ID = 7_310_442  # pg_advisory_lock key, so two instances starting together don't race
 
@@ -106,6 +110,7 @@ class PostgresStore:
                 """,
                 (source_id, json.dumps(merged)),
             )
+        self._changed()
 
     def source_status(self) -> list[dict]:
         with self.conn.cursor() as cursor:
@@ -298,8 +303,12 @@ class PostgresStore:
             cursor.execute("SELECT COALESCE(SUM(pg_column_size(record)), 0) AS size FROM app_log WHERE stream = %s", (stream,))
             return int(cursor.fetchone()["size"])
 
-    def list_documents(self) -> list[Document]:
+    def list_documents(self, summary: bool = False) -> list[Document]:
+        """Every document. `summary` skips the body text and fee rows, for listings and counts."""
         with self.conn.cursor() as cursor:
+            if summary:
+                cursor.execute(f"SELECT {SUMMARY_COLUMNS} FROM documents ORDER BY title")
+                return [_document_from_row(row) for row in cursor.fetchall()]
             cursor.execute("SELECT * FROM documents ORDER BY title")
             documents = [_document_from_row(row) for row in cursor.fetchall()]
             cursor.execute("SELECT * FROM fees")
@@ -324,6 +333,17 @@ class PostgresStore:
         with self.conn.cursor() as cursor:
             cursor.execute("SELECT * FROM parks ORDER BY name")
             return [_park_from_row(row) for row in cursor.fetchall()]
+
+    def chunk_stats(self) -> dict[str, tuple[int, int]]:
+        """document_id → (chunks, characters), counted in the database instead of loading every vector."""
+        with self.conn.cursor() as cursor:
+            cursor.execute("SELECT document_id, COUNT(*) AS chunks, COALESCE(SUM(LENGTH(body)), 0) AS characters FROM chunks GROUP BY document_id")
+            return {row["document_id"]: (int(row["chunks"]), int(row["characters"])) for row in cursor.fetchall()}
+
+    def count_records(self, kind: str) -> int:
+        with self.conn.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) AS n FROM records WHERE kind = %s", (kind,))
+            return int(cursor.fetchone()["n"])
 
     def all_chunks(self) -> list[Chunk]:
         with self.conn.cursor() as cursor:

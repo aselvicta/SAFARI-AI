@@ -72,8 +72,20 @@ class JsonStore:
 
     # Reads --------------------------------------------------------------
 
-    def list_documents(self) -> list[Document]:
+    def list_documents(self, summary: bool = False) -> list[Document]:
         return sorted(self.documents.values(), key=lambda item: item.title)
+
+    def chunk_stats(self) -> dict[str, tuple[int, int]]:
+        """document_id → (chunks, characters)."""
+        stats: dict[str, list[int]] = {}
+        for chunk in self.chunks:
+            entry = stats.setdefault(chunk.document_id, [0, 0])
+            entry[0] += 1
+            entry[1] += len(chunk.text)
+        return {key: (value[0], value[1]) for key, value in stats.items()}
+
+    def count_records(self, kind: str) -> int:
+        return len(self.records.get(kind, {}))
 
     def list_parks(self) -> list[Park]:
         return sorted(self.parks.values(), key=lambda item: item.name)

@@ -1,4 +1,6 @@
 // Building blocks shared by the dashboard sections.
+import { useState } from "react";
+import { Sparkline } from "./charts";
 import { percent } from "./format";
 
 export function Card({ title, subtitle, actions, children, className = "", id }) {
@@ -22,7 +24,7 @@ export function Card({ title, subtitle, actions, children, className = "", id })
  * label · value · delta vs the previous period. `goodWhen` says which direction is good.
  * `kind`: "count" compares relative change, "share" compares percentage points.
  */
-export function StatTile({ label, value, current, previous, kind = "count", goodWhen = "up", hint }) {
+export function StatTile({ label, value, current, previous, kind = "count", goodWhen = "up", hint, trend, hero = false }) {
   let delta = null;
   if (typeof current === "number" && typeof previous === "number") {
     if (kind === "share") {
@@ -37,7 +39,7 @@ export function StatTile({ label, value, current, previous, kind = "count", good
   }
   const good = delta && (goodWhen === "up" ? delta.up : !delta.up);
   return (
-    <div className="stat-tile">
+    <div className={`stat-tile${hero ? " stat-hero" : ""}`}>
       <span className="stat-label">{label}</span>
       <span className="stat-value">{value}</span>
       <span className="stat-foot">
@@ -48,6 +50,7 @@ export function StatTile({ label, value, current, previous, kind = "count", good
         ) : null}
         <span className="stat-hint">{hint || (delta ? "vs previous period" : "")}</span>
       </span>
+      {trend ? <Sparkline rows={trend.rows} field={trend.field} format={trend.format} label={`${label} per day`} /> : null}
     </div>
   );
 }
@@ -112,21 +115,131 @@ export function Search({ label = "Search", value, onChange, placeholder }) {
   );
 }
 
-export function Pager({ total, limit, offset, onChange }) {
+export function Pager({ total, limit, offset, onChange, newer = "← Previous", older = "Next →" }) {
   if (total <= limit) return null;
   const page = Math.floor(offset / limit) + 1;
   const pages = Math.ceil(total / limit);
   return (
     <nav className="pager" aria-label="Pages">
-      <button type="button" className="dash-button" disabled={page <= 1} onClick={() => onChange(offset - limit)}>
-        ← Newer
+      <span className="pager-range">
+        {(offset + 1).toLocaleString()}–{Math.min(total, offset + limit).toLocaleString()} of {total.toLocaleString()}
+      </span>
+      <button type="button" className="dash-button" disabled={page <= 1} onClick={() => onChange(Math.max(0, offset - limit))}>
+        {newer}
       </button>
-      <span>
+      <span className="pager-page">
         Page {page} of {pages}
       </span>
       <button type="button" className="dash-button" disabled={page >= pages} onClick={() => onChange(offset + limit)}>
-        Older →
+        {older}
       </button>
     </nav>
+  );
+}
+
+/** Placeholder blocks shown only on the first load of a section, never on a refetch. */
+export function Skeleton({ layout = "overview" }) {
+  const blocks = {
+    overview: ["kpis", "chart-wide", "chart-side", "third", "third", "third"],
+    insights: ["tabs", "chart-wide", "chart-side", "half", "half"],
+    table: ["filters", "table"],
+    cards: ["third", "third", "third", "table"],
+  }[layout] || ["table"];
+  return (
+    <div className="skeleton-grid" aria-busy="true" aria-label="Loading">
+      {blocks.map((block, index) => (
+        <div key={index} className={`skeleton skeleton-${block}`} />
+      ))}
+    </div>
+  );
+}
+
+/** Tabs within a section. `value` is the active id; `tabs`: [[id, label]]. */
+export function Tabs({ tabs, value, onChange, label }) {
+  return (
+    <div className="dash-tabs" role="tablist" aria-label={label}>
+      {tabs.map(([id, text]) => (
+        <button key={id} type="button" role="tab" aria-selected={value === id} className={value === id ? "active" : ""} onClick={() => onChange(id)}>
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A compact single-choice control, e.g. the period presets. `options`: [[value, label, longLabel?]]. */
+export function Segmented({ options, value, onChange, label }) {
+  return (
+    <div className="segmented" role="radiogroup" aria-label={label}>
+      {options.map(([optionValue, text, long]) => (
+        <button
+          key={optionValue}
+          type="button"
+          role="radio"
+          aria-checked={value === optionValue}
+          title={long}
+          className={value === optionValue ? "active" : ""}
+          onClick={() => onChange(optionValue)}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const ALERT_ICON = { critical: "✕", warning: "!", info: "i" };
+
+/**
+ * Alerts as a compact strip: problems (critical, warning) always show; notices (info) fold behind a
+ * toggle so the numbers stay above the fold.
+ */
+export function AlertStrip({ alerts, renderAction }) {
+  const [open, setOpen] = useState(false);
+  if (!alerts.length) {
+    return (
+      <div className="alert-strip all-clear" role="status">
+        <span className="status status-ok">
+          <span aria-hidden="true" className="status-icon">✓</span>All clear
+        </span>
+        <span>Sources are syncing and the desk is answering normally.</span>
+      </div>
+    );
+  }
+  const problems = alerts.filter((alert) => alert.level !== "info");
+  const notices = alerts.filter((alert) => alert.level === "info");
+  const shown = open ? alerts : problems.length ? problems : [];
+  return (
+    <section className="alert-strip" aria-label="Needs attention">
+      <header className="alert-strip-head">
+        <h2>Needs attention</h2>
+        <span className="alert-counts">
+          {problems.length ? `${problems.length} problem${problems.length === 1 ? "" : "s"}` : "No problems"}
+          {notices.length ? ` · ${notices.length} notice${notices.length === 1 ? "" : "s"}` : ""}
+        </span>
+        {notices.length ? (
+          <button type="button" className="dash-link" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+            {open ? "Show problems only" : problems.length ? `Show all ${alerts.length}` : `Show ${notices.length} notice${notices.length === 1 ? "" : "s"}`}
+          </button>
+        ) : null}
+      </header>
+      {shown.length ? (
+        <ul className="alert-rows">
+          {shown.map((alert) => (
+            <li key={alert.title} className={`alert-row alert-${alert.level}`}>
+              <span className={`alert-icon tone-${alert.level}`} aria-hidden="true">
+                {ALERT_ICON[alert.level]}
+              </span>
+              <span className="visually-hidden">{alert.level}: </span>
+              <strong>{alert.title}</strong>
+              <span className="alert-detail" title={alert.detail}>
+                {alert.detail}
+              </span>
+              {renderAction(alert)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }

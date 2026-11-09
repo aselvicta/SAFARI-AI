@@ -70,3 +70,40 @@ def test_admin_reads_need_the_token(monkeypatch):
         assert client.get("/v1/admin/overview").status_code == 401
         assert client.get("/v1/admin/questions").status_code == 401
         assert client.get("/v1/admin/overview", headers={"X-Admin-Token": "secret"}).status_code == 200
+
+
+def test_overview_has_the_dashboard_views(monkeypatch):
+    with _client(monkeypatch) as client:
+        _ask(client, "Serengeti entry fees")
+        _ask(client, "Serengeti entry fees", session="visitor-2")
+        _ask(client, "What is the price of a helicopter tour to Mars?")
+        overview = client.get("/v1/admin/overview", params={"days": 7}).json()
+        assert len(overview["weekday_hours"]) == 7 and all(len(day) == 24 for day in overview["weekday_hours"])
+        assert sum(map(sum, overview["weekday_hours"])) == 3
+        assert {item["key"] for item in overview["outcomes"]} == {"answered", "low_confidence", "declined", "failed"}
+        assert sum(item["count"] for item in overview["outcomes"]) == 3
+        assert overview["series"][-1]["partial"] is True and overview["series"][1]["partial"] is False
+        assert overview["top_questions"][0]["question"] == "Serengeti entry fees" and overview["top_questions"][0]["count"] == 2
+        assert overview["tariff_windows"]
+        assert overview["trip_details"]["questions"] == 3 and 0 <= overview["trip_details"]["any"] <= 1
+
+
+def test_overview_is_served_from_cache_and_refreshes(monkeypatch):
+    with _client(monkeypatch) as client:
+        _ask(client, "Serengeti entry fees")
+        assert client.get("/v1/admin/overview").json()["kpis"]["current"]["questions"] == 1
+        _ask(client, "How big is Ruaha National Park?")
+        # Served at once from cache (stale-while-revalidate); the Refresh button asks for fresh numbers.
+        assert client.get("/v1/admin/overview", params={"fresh": "true"}).json()["kpis"]["current"]["questions"] == 2
+
+
+def test_fees_and_feedback_are_paginated(monkeypatch):
+    with _client(monkeypatch) as client:
+        first = client.get("/v1/admin/fees", params={"limit": 10}).json()
+        second = client.get("/v1/admin/fees", params={"limit": 10, "offset": 10}).json()
+        assert first["total"] > 20 and len(first["rows"]) == 10 and first["rows"][0] != second["rows"][0]
+        assert "_text" not in first["rows"][0]
+        for index in range(3):
+            client.post("/v1/feedback", json={"rating": 1, "question": f"q{index}", "answer": "…", "session_id": "s"})
+        page = client.get("/v1/admin/feedback", params={"limit": 2}).json()
+        assert page["total"] == 3 and len(page["items"]) == 2 and page["items"][0]["question"] == "q2"

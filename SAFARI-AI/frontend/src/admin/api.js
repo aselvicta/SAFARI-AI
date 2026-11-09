@@ -1,6 +1,7 @@
 // Admin API client. Every call sends the admin session token when there is one; a 401 surfaces as AuthError.
 
 import { readAdminToken, saveAdminToken } from "../storage";
+import { justRefreshed } from "./data";
 
 export class AuthError extends Error {}
 
@@ -53,7 +54,7 @@ async function request(path, options = {}) {
 }
 
 export const checkSession = () => request("/v1/admin/session");
-export const fetchOverview = (days) => request(`/v1/admin/overview${query({ days })}`);
+export const fetchOverview = (days, fresh = false) => request(`/v1/admin/overview${query({ days, fresh: fresh ? "true" : "" })}`);
 export const fetchQuestions = (params) => request(`/v1/admin/questions${query(params)}`);
 export const fetchFeedback = (params) => request(`/v1/admin/feedback${query(params)}`);
 export const reviewFeedback = (id, status, note = "") =>
@@ -79,6 +80,23 @@ export function uploadDocument(file, metadata) {
   form.append("metadata", JSON.stringify(metadata));
   return request("/v1/documents", { method: "POST", body: form });
 }
+
+// Queries for the shared cache (see data.js): [key, load]. Keys encode every parameter.
+const keyed = (name, params = {}) => `${name}${query(params)}`;
+export const queries = {
+  // After Refresh the server recomputes instead of answering from its cache.
+  overview: (days) => [keyed("overview", { days }), () => fetchOverview(days, justRefreshed())],
+  questions: (params) => [keyed("questions", params), () => fetchQuestions(params)],
+  feedback: (params) => [keyed("feedback", params), () => fetchFeedback(params)],
+  inventory: () => ["inventory", fetchInventory],
+  fees: (params) => [keyed("fees", params), () => fetchFees(params)],
+  documents: () => ["documents", fetchDocuments],
+  status: () => ["status", fetchStatus],
+  harvests: () => ["harvests", fetchHarvests],
+  system: () => ["system", fetchSystem],
+  evaluation: () => ["evaluation", fetchEvaluation],
+  parks: () => ["parks", () => request("/v1/parks")],
+};
 
 export async function downloadQuestionsCsv(days) {
   const response = await fetch(`/v1/admin/questions.csv${query({ days })}`, { headers: headers() });

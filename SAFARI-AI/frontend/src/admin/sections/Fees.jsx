@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { fetchParks } from "../../api";
-import { fetchFees, fetchInventory } from "../api";
-import { BarList, useLoad } from "../charts";
+import { queries } from "../api";
+import { BarList, useQuery } from "../charts";
 import { formatDay, label, number } from "../format";
-import { Card, Empty, ErrorNote, Search, Select, Status } from "../ui";
+import { Card, Empty, ErrorNote, Pager, Search, Select, Skeleton, Status } from "../ui";
 
+const LIMIT = 50;
 const STATE_TONE = { in_force: "ok", upcoming: "info", expired: "neutral" };
 const AGE_LABEL = { adult: "adult", child_5_15: "child 5–15", child_under_5: "child under 5" };
 const VISITOR_LABEL = { non_resident: "Non-resident", expatriate: "Expatriate", eac_citizen: "EAC citizen", any: "Any" };
@@ -16,13 +16,11 @@ export default function Fees({ params }) {
   const [state, setState] = useState("in_force");
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
-  const [parks, setParks] = useState([]);
-  const inventory = useLoad(fetchInventory, []);
-  const { data, error, loading } = useLoad(() => fetchFees({ park, category, visitor, state, q, limit: 500 }), [park, category, visitor, state, q]);
-
-  useEffect(() => {
-    fetchParks().then((items) => setParks(Array.isArray(items) ? items : []));
-  }, []);
+  const [offset, setOffset] = useState(0);
+  const parks = useQuery(queries.parks()).data || [];
+  const inventory = useQuery(queries.inventory());
+  const { data, error, loading } = useQuery(queries.fees({ park, category, visitor, state, q, limit: LIMIT, offset }));
+  useEffect(() => setOffset(0), [park, category, visitor, state, q]);
   useEffect(() => setPark(params.park || ""), [params.park]);
   useEffect(() => {
     const timer = setTimeout(() => setQ(search), 250);
@@ -78,7 +76,7 @@ export default function Fees({ params }) {
       <ErrorNote error={error} />
       <Card
         title={data ? `${number(data.total)} fee rows` : "Fee rows"}
-        subtitle={data ? `Official TZS amounts. USD is approximate at ${number(data.tzs_per_usd)} TZS per USD.${data.total > data.rows.length ? ` Showing the first ${data.rows.length}.` : ""}` : ""}
+        subtitle={data ? `Official TZS amounts. USD is approximate at ${number(data.tzs_per_usd)} TZS per USD.` : ""}
         className={loading ? "refreshing" : ""}
       >
         {data && data.rows.length ? (
@@ -120,7 +118,10 @@ export default function Fees({ params }) {
           </div>
         ) : data ? (
           <Empty>No fee rows match these filters.</Empty>
-        ) : null}
+        ) : error ? null : (
+          <Skeleton layout="table" />
+        )}
+        {data ? <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} /> : null}
       </Card>
     </div>
   );

@@ -130,12 +130,15 @@ class Analytics:
         self.feedback = open_lines(data_dir, store, "feedback")
         self.reviews = JsonDoc(data_dir, store, "feedback_review")
         self._review_lock = threading.Lock()
+        # Bumped on every write, so cached dashboard views keyed on it refresh as soon as data changes.
+        self.version = 0
 
     # Writes -------------------------------------------------------------
 
     def record_question(self, *, question: str, session_id: str | None, profile: dict, result: dict | None, latency_ms: float, channel: str, error: str | None = None) -> None:
         result = result or {}
         understood = result.get("understood") or {}
+        self.version += 1
         self.events.append(
             {
                 "at": _now(),
@@ -169,6 +172,7 @@ class Analytics:
     def record_feedback(self, payload: dict) -> dict:
         record = {"at": _now(), **payload, "session_id": _hash(payload.get("session_id"))}
         self.feedback.append(record)
+        self.version += 1
         return record
 
     def set_review(self, feedback_id: str, *, status: str, note: str = "") -> dict:
@@ -176,6 +180,7 @@ class Analytics:
             state = self._reviews()
             state[feedback_id] = {"status": status, "note": note[:1000], "at": _now()}
             self.reviews.save(state)
+            self.version += 1
             return state[feedback_id]
 
     # Reads --------------------------------------------------------------

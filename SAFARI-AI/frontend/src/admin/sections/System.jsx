@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { fetchEvaluation, fetchSystem, runEvaluation } from "../api";
-import { useLoad } from "../charts";
+import { queries, runEvaluation } from "../api";
+import { useQuery } from "../charts";
 import { bytes, dateTime, duration, label, ms, number, percent } from "../format";
 import { Card, Empty, ErrorNote, Status } from "../ui";
 
@@ -10,8 +10,8 @@ function check(value) {
 }
 
 export default function System() {
-  const system = useLoad(fetchSystem, []);
-  const evaluation = useLoad(fetchEvaluation, []);
+  const system = useQuery(queries.system());
+  const evaluation = useQuery(queries.evaluation());
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState(null);
 

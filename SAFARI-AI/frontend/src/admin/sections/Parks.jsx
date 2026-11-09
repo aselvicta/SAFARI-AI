@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { fetchInventory } from "../api";
-import { BarList, Meter, useLoad } from "../charts";
+import { queries } from "../api";
+import { BarList, Meter, useQuery } from "../charts";
 import { label, number, percent } from "../format";
-import { Card, ErrorNote, Search, Select, Status } from "../ui";
+import { Card, ErrorNote, Search, Select, Skeleton, Status } from "../ui";
 
 function range(values, unit) {
   if (!values) return "—";
@@ -12,11 +12,11 @@ function range(values, unit) {
 }
 
 export default function Parks({ go }) {
-  const { data, error } = useLoad(fetchInventory, []);
+  const { data, error } = useQuery(queries.inventory());
   const [search, setSearch] = useState("");
   const [circuit, setCircuit] = useState("");
   const [sort, setSort] = useState("name");
-  if (!data) return <ErrorNote error={error} />;
+  if (!data) return error ? <ErrorNote error={error} /> : <Skeleton layout="cards" />;
 
   const circuits = [...new Set(data.parks.map((park) => park.circuit).filter(Boolean))].sort();
   const needle = search.trim().toLowerCase();

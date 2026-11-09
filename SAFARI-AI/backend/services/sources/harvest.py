@@ -104,7 +104,7 @@ def harvest(store=None, embedder: HashEmbedder | None = None, include_documents:
         report["pages"] = _pages(store, encoder, http)
     _drop_empty_documents(store)
     http.close()
-    report["totals"] = {"documents": len(store.list_documents()), "chunks": len(store.all_chunks())}
+    report["totals"] = {"documents": len(store.list_documents(summary=True)), "chunks": sum(chunks for chunks, _ in store.chunk_stats().values())}
     return report
 
 

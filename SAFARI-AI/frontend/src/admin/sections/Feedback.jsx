@@ -1,15 +1,19 @@
-import { useState } from "react";
-import { fetchFeedback, reviewFeedback } from "../api";
-import { useLoad } from "../charts";
+import { useEffect, useState } from "react";
+import { queries, reviewFeedback } from "../api";
+import { useQuery } from "../charts";
+import { invalidate } from "../data";
 import { dateTime, number, percent } from "../format";
-import { Card, Empty, ErrorNote, Select, StatTile, Status } from "../ui";
+import { Card, Empty, ErrorNote, Pager, Select, Skeleton, StatTile, Status } from "../ui";
 
+const LIMIT = 25;
 const REVIEW_TONE = { open: "warning", reviewed: "info", resolved: "ok", dismissed: "neutral" };
 
 export default function Feedback({ days }) {
   const [status, setStatus] = useState("");
   const [rating, setRating] = useState("");
-  const { data, error, loading, reload } = useLoad(() => fetchFeedback({ days, status, rating }), [days, status, rating]);
+  const [offset, setOffset] = useState(0);
+  useEffect(() => setOffset(0), [days, status, rating]);
+  const { data, error, loading, reload } = useQuery(queries.feedback({ days, status, rating, limit: LIMIT, offset }));
   const [notes, setNotes] = useState({});
   const [saving, setSaving] = useState("");
   const [saveError, setSaveError] = useState(null);
@@ -19,6 +23,7 @@ export default function Feedback({ days }) {
     setSaveError(null);
     try {
       await reviewFeedback(item.id, next, notes[item.id] ?? item.review_note);
+      invalidate("feedback", "overview");
       reload();
     } catch (failure) {
       setSaveError(failure);
@@ -90,7 +95,10 @@ export default function Feedback({ days }) {
           </ul>
         ) : data ? (
           <Empty>No feedback matches these filters.</Empty>
-        ) : null}
+        ) : error ? null : (
+          <Skeleton layout="table" />
+        )}
+        {data ? <Pager total={data.total} limit={LIMIT} offset={offset} onChange={setOffset} newer="← Newer" older="Older →" /> : null}
       </Card>
     </div>
   );

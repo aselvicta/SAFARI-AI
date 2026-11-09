@@ -112,7 +112,17 @@ export default function Overview({ days, go }) {
           <OutcomePanel outcomes={data.outcomes} />
           <div className="meter-stack">
             <ShareMeter label="Answers with citations" value={now.cited_share} />
-            <ShareMeter label="Written by the LLM agent" value={now.agent_share} hint={data.llm_enabled ? "The rest by the template composer" : "Agent is off: set DEEPSEEK_API_KEY"} />
+            <ShareMeter
+              label="Written by DeepSeek"
+              value={now.agent_share}
+              hint={
+                !data.llm_enabled
+                  ? "DeepSeek is off: set DEEPSEEK_API_KEY on the server"
+                  : now.fallbacks
+                    ? `${number(now.fallbacks)} fell back to the template composer`
+                    : "No fallbacks in this period"
+              }
+            />
           </div>
         </Card>
       </div>

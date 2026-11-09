@@ -96,7 +96,10 @@ export default function System() {
         <div className="dash-grid two">
           <Card title="Configuration" subtitle="Read from the server environment (backend/.env)">
             <dl className="kv-grid">
-              <div><dt>LLM agent</dt><dd>{info.llm_enabled ? <Status tone="ok">{info.llm_model}</Status> : <Status tone="warning">off</Status>}</dd></div>
+              <div><dt>LLM</dt><dd>{info.llm_enabled ? <Status tone="ok">{`${info.llm_provider} · ${info.llm_model}`}</Status> : <Status tone="critical">off</Status>}</dd></div>
+              <div><dt>Last LLM success</dt><dd>{info.llm_health?.last_ok_at ? dateTime(info.llm_health.last_ok_at) : "—"}</dd></div>
+              <div><dt>Last LLM error</dt><dd>{info.llm_health?.last_error_at ? `${dateTime(info.llm_health.last_error_at)} · ${label(info.llm_health.last_error_kind)}` : "None"}</dd></div>
+              <div><dt>LLM calls · errors · retries</dt><dd>{info.llm_health ? `${number(info.llm_health.calls)} · ${number(info.llm_health.errors)} · ${number(info.llm_health.retries)}` : "—"}</dd></div>
               <div><dt>LLM endpoint</dt><dd>{info.llm_base_url || "default"}</dd></div>
               <div><dt>Store</dt><dd>{info.store}</dd></div>
               <div><dt>Auto-sync</dt><dd>{info.refresh_hours ? `every ${info.refresh_hours} h` : "off"}</dd></div>

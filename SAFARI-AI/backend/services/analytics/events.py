@@ -153,6 +153,7 @@ class Analytics:
                 "fee_category": understood.get("fee_category"),
                 "scope": understood.get("scope_hits") or [],
                 "generator": result.get("generator"),
+                "fallback": result.get("fallback"),
                 "abstained": bool(result.get("abstained")),
                 "confidence": result.get("confidence"),
                 "confidence_label": result.get("confidence_label"),

@@ -107,3 +107,13 @@ def test_fees_and_feedback_are_paginated(monkeypatch):
             client.post("/v1/feedback", json={"rating": 1, "question": f"q{index}", "answer": "…", "session_id": "s"})
         page = client.get("/v1/admin/feedback", params={"limit": 2}).json()
         assert page["total"] == 3 and len(page["items"]) == 2 and page["items"][0]["question"] == "q2"
+
+
+def test_deepseek_off_is_a_critical_alert(monkeypatch):
+    with _client(monkeypatch) as client:
+        _ask(client, "Serengeti entry fees")
+        overview = client.get("/v1/admin/overview").json()
+        off = [alert for alert in overview["alerts"] if alert["title"] == "DeepSeek is off"]
+        assert off and off[0]["level"] == "critical"
+        assert overview["kpis"]["current"]["fallbacks"] == 1
+        assert overview["fallback_reasons"][0]["key"] == "llm_off"

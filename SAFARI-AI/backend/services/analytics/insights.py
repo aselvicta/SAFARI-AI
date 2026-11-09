@@ -9,11 +9,26 @@ from statistics import median
 
 from services.analytics.events import Analytics, parse_at
 from services.common.text import parse_date
+from services.generation import llm as llm_client
 from services.knowledge import tariffs
 
 EAT = timezone(timedelta(hours=3))  # Tanzania, no daylight saving
 STALE_FACTOR = 2  # a source is stale after twice the refresh interval
 TARIFF_WARNING_DAYS = 60
+FALLBACK_ALERT_SHARE = 0.1  # warn when more than this share of answers did not come from the LLM
+FALLBACK_LABELS = {
+    "llm_off": "LLM not configured",
+    "rate_limited": "Rate limited",
+    "server_error": "Provider server error",
+    "timeout": "Timed out",
+    "network": "Network error",
+    "auth": "Key rejected or no balance",
+    "bad_request": "Request rejected",
+    "empty": "Empty reply",
+    "round_limit": "Too many tool rounds",
+    "ungrounded_figures": "Unsupported figures",
+    "ungrounded_citations": "No source cited",
+}
 
 
 # Demand and quality ------------------------------------------------------------
@@ -54,6 +69,11 @@ def overview(analytics: Analytics, park_names: dict[str, str], days: int = 30) -
         "weekday_hours": _weekday_hours(current),
         "outcomes": _outcomes(current),
         "trip_details": _trip_details(answered),
+        "fallback_reasons": [
+            {**item, "label": FALLBACK_LABELS.get(item["key"], item["key"])}
+            for item in _top(row.get("fallback") for row in answered if row.get("fallback") != "not_requested")
+        ],
+        "llm_health": llm_client.health(),
     }
 
 
@@ -73,6 +93,8 @@ def _kpis(current: list[dict], previous: list[dict], feedback: list[dict]) -> di
             "median_latency_ms": median(latencies) if latencies else None,
             "mean_confidence": (sum(confidences) / len(confidences)) if confidences else None,
             "cited_share": (sum(1 for row in real if row.get("citations")) / len(real)) if real else None,
+            # Answers the LLM should have written but the template composer did (older events have no field).
+            "fallbacks": sum(1 for row in real if row.get("fallback") and row.get("fallback") != "not_requested"),
         }
 
     now, before = summary(current), summary(previous)
@@ -437,7 +459,36 @@ def alerts(store, settings, stats: dict, stock: dict) -> list[dict]:
     if current["feedback_open"]:
         items.append({"level": "info", "title": f"{current['feedback_open']} negative rating{'s' if current['feedback_open'] != 1 else ''} to review", "detail": "Visitors marked these answers unhelpful.", "action": "feedback"})
     if not settings.llm_enabled:
-        items.append({"level": "info", "title": "The LLM agent is off", "detail": "Answers come from the deterministic composer. Set DEEPSEEK_API_KEY to enable the agent.", "action": "system"})
+        items.append(
+            {
+                "level": "critical",
+                "title": "DeepSeek is off",
+                "detail": "Every answer comes from the template composer. Set DEEPSEEK_API_KEY on the server; the endpoint defaults to api.deepseek.com.",
+                "action": "system",
+            }
+        )
+    else:
+        health = llm_client.health()
+        if health["last_error_kind"] == "auth" and (health["last_error_at"] or "") > (health["last_ok_at"] or ""):
+            items.append(
+                {
+                    "level": "critical",
+                    "title": f"{settings.llm_provider} is rejecting requests",
+                    "detail": "The API key was refused or the account has no balance, so answers fall back to the composer. " + (health["last_error"] or ""),
+                    "action": "system",
+                }
+            )
+        current = stats["kpis"]["current"]
+        if current["questions"] >= 5 and current["fallbacks"] / current["questions"] > FALLBACK_ALERT_SHARE:
+            reasons = ", ".join(f"{item['label'].lower()} ({item['count']})" for item in stats.get("fallback_reasons", [])[:3])
+            items.append(
+                {
+                    "level": "warning",
+                    "title": f"{settings.llm_provider} fell back on {current['fallbacks'] / current['questions']:.0%} of answers",
+                    "detail": f"{current['fallbacks']} answers came from the template composer instead: {reasons or 'see System'}.",
+                    "action": "insights",
+                }
+            )
     if not (settings.admin_token or (settings.admin_username and settings.admin_password)):
         items.append({"level": "info", "title": "No admin login set", "detail": "Admin is open to this machine only. Set SAFARI_ADMIN_USERNAME and SAFARI_ADMIN_PASSWORD before exposing the server.", "action": "system"})
     order = {"critical": 0, "warning": 1, "info": 2}

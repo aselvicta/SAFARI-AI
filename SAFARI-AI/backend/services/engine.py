@@ -67,12 +67,20 @@ class Assistant:
         generator = "composer"
         answer = None
         status = "answered"
+        # Why the answer did not come from the LLM, when it didn't. Logged per question so the dashboard
+        # shows how often the desk fell back and why.
+        fallback = None if llm else ("llm_off" if use_llm is None else "not_requested")
         if llm:
             try:
                 answer, status = run_agent(question, history, tools, self.settings, query.language, emit)
                 generator = "agent"
-            except (LLMError, Ungrounded) as exc:
-                log.warning("agent fell back to composer: %s", exc)
+            except LLMError as exc:
+                fallback = exc.kind
+                log.warning("agent fell back to composer (%s): %s", exc.kind, exc)
+            except Ungrounded as exc:
+                fallback = f"ungrounded_{exc.kind}"
+                log.warning("agent draft failed the grounding check (%s): %s", exc.kind, exc)
+            if answer is None:
                 emit("reset", {})
                 tools = Toolbox(self.store, self.index, self.settings, question_date, profile)
         if answer is None:
@@ -98,6 +106,7 @@ class Assistant:
             "confidence": round(confidence, 4),
             "confidence_label": confidence_label(confidence),
             "generator": generator,
+            "fallback": fallback,
             "citations": _referenced(answer, tools.citations),
             "blocks": tools.blocks,
             "recommended_parks": tools.recommended,

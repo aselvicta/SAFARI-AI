@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 import httpx
 
@@ -43,11 +46,80 @@ class Turn:
 
 
 class LLMError(RuntimeError):
-    pass
+    """A failed LLM call. `kind` says why: rate_limited, server_error, timeout, network, auth, bad_request,
+    empty or round_limit. Only the first four are worth retrying."""
+
+    def __init__(self, message: str, kind: str = "error") -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
+RETRYABLE = {"rate_limited", "server_error", "timeout", "network"}
+RETRIES = 2  # after the first attempt, so three tries in all
+BACKOFF_S = (1.0, 3.0)
+
+# The last outcome of an LLM call in this process, for the admin dashboard.
+_health_lock = threading.Lock()
+_health: dict = {"last_ok_at": None, "last_error_at": None, "last_error": None, "last_error_kind": None, "calls": 0, "errors": 0, "retries": 0}
+
+
+def health() -> dict:
+    with _health_lock:
+        return dict(_health)
+
+
+def _record(ok: bool, error: LLMError | None = None, retried: bool = False) -> None:
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with _health_lock:
+        if retried:
+            _health["retries"] += 1
+            return
+        _health["calls"] += 1
+        if ok:
+            _health["last_ok_at"] = now
+        else:
+            _health["errors"] += 1
+            _health["last_error_at"] = now
+            _health["last_error"] = str(error)[:300]
+            _health["last_error_kind"] = error.kind if error else "error"
+
+
+def _status_kind(code: int) -> str:
+    if code == 429:
+        return "rate_limited"
+    if code in (401, 403):
+        return "auth"
+    if code == 402:
+        return "auth"  # DeepSeek: insufficient balance; the key works but can't pay
+    if code >= 500:
+        return "server_error"
+    return "bad_request"
 
 
 def stream_turn(settings: Settings, messages: list[dict], tools: list[dict] | None = None, temperature: float = 0.3, timeout: float = 60.0) -> Iterator[str | Turn]:
-    """Yield content deltas (str) as they arrive, then the complete Turn last."""
+    """Yield content deltas (str) as they arrive, then the complete Turn last.
+
+    Rate limits, server errors, timeouts and dropped connections are retried (with backoff) as long as
+    nothing has been streamed yet; a call that fails part-way, or for a reason retrying can't fix
+    (a rejected key, a bad request), raises LLMError at once."""
+    for attempt in range(RETRIES + 1):
+        produced = False
+        try:
+            for piece in _stream_once(settings, messages, tools, temperature, timeout):
+                produced = True
+                yield piece
+            _record(True)
+            return
+        except LLMError as exc:
+            if exc.kind in RETRYABLE and not produced and attempt < RETRIES:
+                _record(False, retried=True)
+                time.sleep(getattr(exc, "retry_after", None) or BACKOFF_S[attempt])
+                continue
+            _record(False, exc)
+            raise
+
+
+def _stream_once(settings: Settings, messages: list[dict], tools: list[dict] | None, temperature: float, timeout: float) -> Iterator[str | Turn]:
     base = settings.llm_base_url.rstrip("/")
     endpoint = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
     body: dict = {"model": settings.llm_model, "temperature": temperature, "messages": messages, "stream": True}
@@ -65,7 +137,11 @@ def stream_turn(settings: Settings, messages: list[dict], tools: list[dict] | No
             timeout=httpx.Timeout(timeout, connect=10.0),
         ) as response:
             if response.status_code >= 400:
-                raise LLMError(f"LLM HTTP {response.status_code}: {response.read()[:300]!r}")
+                error = LLMError(f"LLM HTTP {response.status_code}: {response.read()[:300]!r}", _status_kind(response.status_code))
+                retry_after = response.headers.get("retry-after", "")
+                if retry_after.isdigit():
+                    error.retry_after = min(5.0, float(retry_after))
+                raise error
             for line in response.iter_lines():
                 if not line or not line.startswith("data:"):
                     continue
@@ -92,7 +168,9 @@ def stream_turn(settings: Settings, messages: list[dict], tools: list[dict] | No
                             call.name += function["name"]
                         if function.get("arguments"):
                             call.arguments += function["arguments"]
+    except httpx.TimeoutException as exc:
+        raise LLMError(f"timed out: {exc}", "timeout") from exc
     except httpx.HTTPError as exc:
-        raise LLMError(str(exc)) from exc
+        raise LLMError(str(exc) or exc.__class__.__name__, "network") from exc
     turn.tool_calls = [calls[index] for index in sorted(calls) if calls[index].name]
     yield turn

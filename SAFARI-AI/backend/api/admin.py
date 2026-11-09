@@ -22,6 +22,7 @@ from api.security import auth_required, login_enabled, require_admin
 from services.analytics import insights
 from services.analytics.events import JsonDoc, open_lines
 from services.common.memo import Memo
+from services.generation.llm import health as llm_health
 from services.common.settings import load_settings
 from services.common.text import parse_date
 
@@ -405,8 +406,10 @@ def system(request: Request) -> dict:
         "store": settings.store,
         "data_dir": str(settings.data_dir),
         "llm_enabled": settings.llm_enabled,
+        "llm_provider": settings.llm_provider if settings.llm_enabled else None,
         "llm_model": settings.llm_model if settings.llm_enabled else None,
         "llm_base_url": settings.llm_base_url or None,
+        "llm_health": llm_health(),
         "refresh_hours": settings.refresh_hours,
         "tzs_per_usd": settings.tzs_per_usd,
         "admin_token_set": bool(settings.admin_token),

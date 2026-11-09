@@ -65,7 +65,12 @@ def split_status(text: str) -> tuple[str, str]:
 
 
 class Ungrounded(RuntimeError):
-    pass
+    """The final draft failed the grounding check twice. `kind`: figures (numbers no tool returned) or
+    citations (an answer with no source cited)."""
+
+    def __init__(self, message: str, kind: str = "figures") -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 def run_agent(question: str, history: list[dict], tools: Toolbox, settings: Settings, language: str, emit: Emit) -> tuple[str, str]:
@@ -89,7 +94,7 @@ def run_agent(question: str, history: list[dict], tools: Toolbox, settings: Sett
                 turn = piece
         stream.flush()
         if turn is None:
-            raise LLMError("empty response")
+            raise LLMError("empty response", "empty")
         if turn.tool_calls:
             if streamed:
                 emit("reset", {})
@@ -102,27 +107,45 @@ def run_agent(question: str, history: list[dict], tools: Toolbox, settings: Sett
             continue
         text, status = split_status(turn.content.strip())
         problems = ungrounded_numbers(text, tools, question)
-        if problems and not retried:
+        # An answer drawn from tool results must cite one. (Small talk or a clarifying question uses no tool, so
+        # there is nothing to cite; the figures check still applies to it.)
+        uncited = status == "answered" and bool(tools.citations) and not cites_a_source(text, tools)
+        if (problems or uncited) and not retried:
             retried = True
             emit("reset", {})
-            emit("status", {"label": "Double-checking figures"})
+            emit("status", {"label": "Double-checking figures" if problems else "Checking sources"})
             messages.append({"role": "assistant", "content": turn.content})
+            issues = []
+            if problems:
+                issues.append("these figures are not in any tool result: " + ", ".join(problems) + ". Use only numbers that appear in tool results; call a tool if you need a total")
+            if uncited:
+                issues.append(
+                    "the answer cites no source. Every factual sentence needs the [n] cite number of the tool result it comes from; "
+                    "call a tool first if you have no result for it, and if the tools don't answer the question, end with [[not_found]]"
+                )
             messages.append(
                 {
                     "role": "system",
                     "content": (
-                        "Internal check (never mention it to the visitor): these figures are not in any tool result: "
-                        + ", ".join(problems)
-                        + ". Write the complete answer again from the start, as if for the first time, using only numbers "
-                        "that appear in tool results. Call a tool if you need a total. Do not apologise or refer to a correction."
+                        "Internal check (never mention it to the visitor): "
+                        + "; and ".join(issues)
+                        + ". Write the complete answer again from the start, as if for the first time. Do not apologise or refer to a correction."
                     ),
                 }
             )
             continue
         if problems:
-            raise Ungrounded(", ".join(problems))
+            raise Ungrounded(", ".join(problems), "figures")
+        if uncited:
+            raise Ungrounded("no source cited", "citations")
         return clean_citations(text, tools), status
-    raise LLMError("the agent did not finish within the round limit")
+    raise LLMError("the agent did not finish within the round limit", "round_limit")
+
+
+def cites_a_source(text: str, tools: Toolbox) -> bool:
+    """True when the answer cites at least one source a tool actually returned."""
+    known = {citation["n"] for citation in tools.citations}
+    return any(int(number) in known for number in _CITE.findall(text))
 
 
 def ungrounded_numbers(text: str, tools: Toolbox, question: str) -> list[str]:

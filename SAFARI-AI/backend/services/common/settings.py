@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# DeepSeek is the default LLM: a DEEPSEEK_API_KEY on its own is enough to turn the agent on.
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_MODEL = "deepseek-chat"
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,10 @@ class Settings:
     @property
     def llm_enabled(self) -> bool:
         return bool(self.llm_base_url and self.llm_api_key)
+
+    @property
+    def llm_provider(self) -> str:
+        return "DeepSeek" if "deepseek" in self.llm_base_url.lower() else "OpenAI-compatible"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -63,9 +70,14 @@ def load_settings() -> Settings:
             "DATABASE_URL",
             "postgresql://safari:safari@localhost:5432/safari_ai",
         ),
-        llm_base_url=_first("DEEPSEEK_BASE_URL", "SAFARI_LLM_BASE_URL").rstrip("/"),
+        llm_base_url=_first(
+            "DEEPSEEK_BASE_URL",
+            "SAFARI_LLM_BASE_URL",
+            # Another OpenAI-compatible provider needs SAFARI_LLM_BASE_URL; DeepSeek's endpoint is the default.
+            default=DEEPSEEK_BASE_URL if _first("DEEPSEEK_API_KEY") else "",
+        ).rstrip("/"),
         llm_api_key=_first("DEEPSEEK_API_KEY", "SAFARI_LLM_API_KEY"),
-        llm_model=_first("DEEPSEEK_MODEL", "SAFARI_LLM_MODEL", default="deepseek-chat"),
+        llm_model=_first("DEEPSEEK_MODEL", "SAFARI_LLM_MODEL", default=DEEPSEEK_MODEL),
         tzs_per_usd=_float("SAFARI_TZS_PER_USD", 2555.0),
         refresh_hours=_float("SAFARI_REFRESH_HOURS", 12.0),
         admin_token=_first("SAFARI_ADMIN_TOKEN"),

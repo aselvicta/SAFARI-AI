@@ -116,6 +116,7 @@ export default function Questions({ days, params }) {
                               <div><dt>Citations</dt><dd>{row.citations ?? 0}</dd></div>
                               <div><dt>Answer cards</dt><dd>{(row.blocks || []).join(", ") || "—"}</dd></div>
                               <div><dt>Tools</dt><dd>{(row.tools || []).join(", ") || "—"}</dd></div>
+                              <div><dt>Fallback</dt><dd>{row.fallback ? label(row.fallback) : row.generator === "agent" ? "None (DeepSeek)" : "—"}</dd></div>
                               <div><dt>Recommended</dt><dd>{(row.recommended || []).map((slug) => names[slug] || slug).join(", ") || "—"}</dd></div>
                               <div><dt>Passport</dt><dd>{row.passport || "—"}</dd></div>
                               <div><dt>Fee class</dt><dd>{label(row.visitor_class)}</dd></div>

@@ -251,6 +251,12 @@ function Quality({ data, go }) {
           <BarList items={data.tools.map((item) => ({ ...item, label: item.key.replace(/_/g, " ") }))} empty="No tool calls yet." />
         </Card>
       </div>
+      <Card
+        title="Why answers did not come from DeepSeek"
+        subtitle="Each fallback went to the template composer, which answers only from the same official sources. Unsupported figures and uncited drafts are DeepSeek answers the grounding check rejected."
+      >
+        <BarList items={data.fallback_reasons} empty="Every answer in this period came from DeepSeek." />
+      </Card>
     </>
   );
 }

@@ -187,7 +187,7 @@ export default function Documents() {
                       )}
                       <span className="cell-sub">
                         {document.organization} · {document.document_id}
-                        {document.effective_from || document.effective_until ? ` · ${document.effective_from || "—"} → ${document.effective_until || "—"}` : ""}
+                        {document.effective_from || document.effective_until ? ` · ${document.effective_from || "open"} → ${document.effective_until || "open"}` : ""}
                       </span>
                     </td>
                     <td>{label(document.document_type)}</td>

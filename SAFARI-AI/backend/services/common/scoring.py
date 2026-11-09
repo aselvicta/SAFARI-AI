@@ -103,7 +103,7 @@ def cosine(left: list[float], right: list[float]) -> float:
 
 
 def bm25_scores(query_tokens: list[str], documents: list[list[str]], k1: float = 1.5, b: float = 0.75) -> list[float]:
-    """BM25 normalized to the 0–1 range inside this candidate set."""
+    """BM25 normalized to the 0 to 1 range inside this candidate set."""
     count = len(documents)
     if count == 0:
         return []

@@ -53,8 +53,8 @@ export default function SourcesDrawer({ open, citations, focus, t, lang, onClose
               const window =
                 citation.effective_from || citation.effective_until
                   ? format(t.effective, {
-                      from: formatDate(citation.effective_from, lang) || "—",
-                      to: formatDate(citation.effective_until, lang) || "—",
+                      from: formatDate(citation.effective_from, lang) || "?",
+                      to: formatDate(citation.effective_until, lang) || "?",
                     })
                   : "";
               return (

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { queries, runHarvest } from "../api";
 import { BarList, SegmentedBar, ShareMeter, TimeSeries, useQuery } from "../charts";
 import { invalidate } from "../data";
-import { ago, compact, formatDay, label, ms, number, percent } from "../format";
+import { EMPTY, ago, compact, formatDay, label, ms, number, percent } from "../format";
 import { AlertStrip, Card, Empty, ErrorNote, Skeleton, Status, StatTile, sourceTone } from "../ui";
 
 export const SERIES = {
@@ -31,7 +31,7 @@ export function OutcomePanel({ outcomes }) {
           <li key={part.key}>
             <Status tone={part.tone}>{part.label}</Status>
             <span className="outcome-count">{number(part.count)}</span>
-            <span className="outcome-share">{total ? percent(part.count / total) : "—"}</span>
+            <span className="outcome-share">{total ? percent(part.count / total) : EMPTY}</span>
           </li>
         ))}
       </ul>
@@ -95,7 +95,7 @@ export default function Overview({ days, go }) {
           value={number(now.questions)}
           current={now.questions}
           previous={before.questions}
-          hint={`${number(now.sessions)} sessions · ${now.questions_per_session ? number(now.questions_per_session, 1) : "—"} per session`}
+          hint={`${number(now.sessions)} sessions · ${now.questions_per_session ? number(now.questions_per_session, 1) : EMPTY} per session`}
           trend={trend("questions")}
         />
         <StatTile label="Sessions" value={number(now.sessions)} current={now.sessions} previous={before.sessions} trend={trend("sessions")} />

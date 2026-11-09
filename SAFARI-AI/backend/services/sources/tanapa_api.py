@@ -39,7 +39,7 @@ VISITOR_LABELS = {
 }
 AGE_LABELS = {
     "adult": "16 years and above",
-    "child_5_15": "Children 5–15",
+    "child_5_15": "Children 5-15",
     "student": "Students",
     "any": "",
 }
@@ -310,7 +310,7 @@ def documents_from_snapshot(snapshot: ApiSnapshot, parks: list[Park]) -> list[tu
                 {
                     **base,
                     "document_id": f"tanapa_live_park_{park['slug']}",
-                    "title": f"{park['name']} — TANAPA park page",
+                    "title": f"{park['name']}: TANAPA park page",
                     "document_type": "park_guide",
                     "source_url": park["page_url"],
                     "park_slug": park["slug"],
@@ -329,7 +329,7 @@ def documents_from_snapshot(snapshot: ApiSnapshot, parks: list[Park]) -> list[tu
                 {
                     **base,
                     "document_id": f"tanapa_activity_{record.key}",
-                    "title": f"{activity['title']} — TANAPA activity",
+                    "title": f"{activity['title']}: TANAPA activity",
                     "document_type": "activity",
                     "source_url": ACTIVITIES_PAGE,
                 },
@@ -345,7 +345,7 @@ def documents_from_snapshot(snapshot: ApiSnapshot, parks: list[Park]) -> list[tu
         docs.append(
             (
                 text,
-                {**base, "document_id": "tanapa_attractions", "title": "Attractions in Tanzania's national parks — TANAPA", "document_type": "attraction", "source_url": f"{SITE}/tourism"},
+                {**base, "document_id": "tanapa_attractions", "title": "Attractions in Tanzania's national parks (TANAPA)", "document_type": "attraction", "source_url": f"{SITE}/tourism"},
             )
         )
     accommodation = accommodation_records(snapshot)
@@ -356,7 +356,7 @@ def documents_from_snapshot(snapshot: ApiSnapshot, parks: list[Park]) -> list[tu
         docs.append(
             (
                 text,
-                {**base, "document_id": "tanapa_accommodation", "title": "Accommodation types in national parks — TANAPA", "document_type": "accommodation", "source_url": ACCOMMODATION_PAGE},
+                {**base, "document_id": "tanapa_accommodation", "title": "Accommodation types in national parks (TANAPA)", "document_type": "accommodation", "source_url": ACCOMMODATION_PAGE},
             )
         )
     if snapshot.tariff_notes or snapshot.tariff_faq:
@@ -366,7 +366,7 @@ def documents_from_snapshot(snapshot: ApiSnapshot, parks: list[Park]) -> list[tu
         docs.append(
             (
                 "\n\n".join(parts),
-                {**base, "document_id": "tanapa_tariff_faq", "title": "Park fees: notes and FAQ — TANAPA", "document_type": "fee_guide", "source_url": TARIFF_PAGE},
+                {**base, "document_id": "tanapa_tariff_faq", "title": "Park fees: notes and FAQ (TANAPA)", "document_type": "fee_guide", "source_url": TARIFF_PAGE},
             )
         )
     return docs

@@ -26,6 +26,7 @@ from api.admin import log_harvest, router as admin_router, views, warm
 from api.security import login_router
 from services.analytics.events import Analytics
 from services.common.settings import ROOT, load_settings
+from services.common.typography import clean
 from services.engine import build_assistant
 from services.knowledge import parks as park_knowledge
 from services.knowledge import tariffs
@@ -119,8 +120,17 @@ async def lifespan(app: FastAPI):
         task.cancel()
 
 
+class CleanJSONResponse(JSONResponse):
+    """Every JSON answer passes the house style (no em or en dashes) on its way out, whatever produced
+    the text: our copy, indexed TANAPA documents, or the LLM."""
+
+    def render(self, content) -> bytes:
+        return super().render(clean(content))
+
+
 app = FastAPI(
     title="SafariAI Tanzania",
+    default_response_class=CleanJSONResponse,
     summary="Visitor agent for Tanzania National Parks: official fees, parks, visas, with citations.",
     version="2.0.0",
     lifespan=lifespan,
@@ -197,7 +207,7 @@ def ask_stream(body: AskRequest, request: Request) -> StreamingResponse:
             if item is None:
                 return
             event, data = item
-            yield f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+            yield f"event: {event}\ndata: {json.dumps(clean(data), ensure_ascii=False)}\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
@@ -251,7 +261,7 @@ def briefing(body: BriefingRequest, download: bool = False):
     if not download:
         return payload
     return Response(
-        content=render_briefing_pdf(payload),
+        content=render_briefing_pdf(clean(payload)),
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=safari-briefing.pdf"},
     )

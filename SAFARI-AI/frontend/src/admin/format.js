@@ -1,29 +1,31 @@
 // Formatting helpers for the dashboard. Times show in East Africa Time, the parks' own clock.
 
 const TIME_ZONE = "Africa/Dar_es_Salaam";
+// Shown where a value is missing. (No dashes anywhere in the product copy.)
+export const EMPTY = "n/a";
 
 export function compact(value) {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return EMPTY;
   return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
 export function number(value, digits = 0) {
-  if (value === null || value === undefined || value === "") return "—";
+  if (value === null || value === undefined || value === "") return EMPTY;
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: digits }).format(value);
 }
 
 export function percent(value, digits = 0) {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return EMPTY;
   return `${(value * 100).toFixed(digits)}%`;
 }
 
 export function ms(value) {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return EMPTY;
   return value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${Math.round(value)} ms`;
 }
 
 export function tzs(value) {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return EMPTY;
   return `TZS ${number(value)}`;
 }
 
@@ -41,7 +43,7 @@ export function formatDay(value, long = false) {
 }
 
 export function dateTime(value) {
-  if (!value) return "—";
+  if (!value) return EMPTY;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: TIME_ZONE }).format(date);
@@ -58,7 +60,7 @@ export function ago(value) {
 }
 
 export function duration(seconds) {
-  if (seconds === null || seconds === undefined) return "—";
+  if (seconds === null || seconds === undefined) return EMPTY;
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -66,6 +68,6 @@ export function duration(seconds) {
 }
 
 export function label(value) {
-  if (!value) return "—";
+  if (!value) return EMPTY;
   return String(value).replace(/_/g, " ").replace(/^\w/, (first) => first.toUpperCase());
 }

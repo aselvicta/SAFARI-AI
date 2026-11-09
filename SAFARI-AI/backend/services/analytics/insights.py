@@ -249,11 +249,11 @@ def _top_parks(rows: list[dict], field: str, names: dict[str, str], limit: int =
 def _days_bucket(value) -> str:
     days = int(value)
     if days <= 2:
-        return "1–2 days"
+        return "1-2 days"
     if days <= 4:
-        return "3–4 days"
+        return "3-4 days"
     if days <= 7:
-        return "5–7 days"
+        return "5-7 days"
     return "8+ days"
 
 
@@ -264,7 +264,7 @@ def _group_bucket(row: dict) -> str:
     if people == 2:
         return "Couple"
     if people <= 5:
-        return "3–5 people"
+        return "3-5 people"
     return "6+ people"
 
 

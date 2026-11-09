@@ -139,7 +139,7 @@ def _trip_rows(briefing: dict) -> list[dict]:
         if age < 5:
             band = "Free, below 5"
         elif age <= 15:
-            band = "5–15 row"
+            band = "5-15 row"
         else:
             band = "16 and above"
         rows.append({"label": f"Child age {age}", "value": band})
@@ -167,7 +167,7 @@ def _fee_status_rows(briefing: dict) -> list[dict]:
         {"label": "Tariff", "value": tariff.get("title") or ""},
         {"label": "Valid", "value": f"{tariff.get('effective_from')} to {tariff.get('effective_until')}"},
         {"label": "Status", "value": f"In force on {briefing.get('as_of')}"},
-        {"label": "Fee class", "value": f"{briefing.get('visitor', '')} — {briefing.get('visitor_reason', '')}"},
+        {"label": "Fee class", "value": f"{briefing.get('visitor', '')}: {briefing.get('visitor_reason', '')}"},
         {"label": "Currency", "value": "Official amounts in TZS; USD is approximate"},
         {"label": "Confirm", "value": tariff.get("source_url") or "https://www.tanzaniaparks.go.tz/tourism/visitor-information/tariff"},
     ]

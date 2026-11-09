@@ -56,7 +56,7 @@ def entry_lines(passport: str, location: str) -> list[dict]:
     record = lookup_passport(passport) if (passport or "").strip() else None
     referral = bool(record and record["visa"] == "Referral")
     if (passport or "").strip() and record is None:
-        lines.append({"label": "Passport", "value": f"{passport.strip()} — not on the loaded eligibility list"})
+        lines.append({"label": "Passport", "value": f"{passport.strip()} (not on the loaded eligibility list)"})
     elif record:
         lines.append({"label": "Passport", "value": record["country"]})
         lines.append({"label": "Visa", "value": record["visa"]})
@@ -121,9 +121,11 @@ def plan_rows() -> list[dict]:
     ):
         if label.lower().replace(" and ", " & ") in text.lower() or label.lower() in text.lower():
             rows.append({"label": "Plan step", "value": label})
-    for label, window in (("Dry season", "Jun–Oct"), ("Short rains", "Nov–Dec"), ("Long rains", "Mar–May")):
-        if window in text or window.replace("–", "-") in text:
-            rows.append({"label": label, "value": window})
+    # Matched as TANAPA writes them (en dash or hyphen); shown in words.
+    seasons = (("Dry season", "Jun\u2013Oct", "June to October"), ("Short rains", "Nov\u2013Dec", "November to December"), ("Long rains", "Mar\u2013May", "March to May"))
+    for label, window, shown in seasons:
+        if window in text or window.replace("\u2013", "-") in text:
+            rows.append({"label": label, "value": shown})
     if rows:
         rows.append({"label": "Source", "value": PLAN_URL})
     _plan_rows = rows

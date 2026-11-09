@@ -43,7 +43,7 @@ function FeesBlock({ block, t, lang }) {
       </header>
       {block.valid_from || block.valid_until ? (
         <p className="block-meta">
-          {format(t.valid, { from: formatDate(block.valid_from, lang) || "—", to: formatDate(block.valid_until, lang) || "—" })}
+          {format(t.valid, { from: formatDate(block.valid_from, lang) || "?", to: formatDate(block.valid_until, lang) || "?" })}
         </p>
       ) : null}
       {ordered.map(([key, group]) => (

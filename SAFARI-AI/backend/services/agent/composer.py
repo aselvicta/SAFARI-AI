@@ -101,7 +101,7 @@ def _planning(query, tools):
             park = tools.call("get_park", {"park": slug})
             if park.get("error"):
                 continue
-            parts.append(f"**{park['name']}** — {_first(park['description'], 2)} [{park['cite_park_page']}]")
+            parts.append(f"**{park['name']}**: {_first(park['description'], 2)} [{park['cite_park_page']}]")
     else:
         interests = ["wildlife"] if query.wants_wildlife or query.animal else []
         result = tools.call("recommend_parks", {"interests": interests, "days": query.days, "origin": query.origin, "avoid_beach": query.wants_beach is False})
@@ -110,7 +110,7 @@ def _planning(query, tools):
                 f"Hifadhi zinazofaa safari ya siku {query.days}:" if sw and query.days else "Hifadhi zinazofaa:" if sw
                 else f"For a {query.days}-day trip, these TANAPA parks fit:" if query.days else "These TANAPA parks fit what you described:"
             )
-            parts.append(intro + "\n" + "\n".join(f"- **{item['name']}**" + (f" ({item['zone']})" if item["zone"] else "") + f" — {_first(item['summary'], 2)} [{item['cite']}]" for item in result["parks"]))
+            parts.append(intro + "\n" + "\n".join(f"- **{item['name']}**" + (f" ({item['zone']})" if item["zone"] else "") + f": {_first(item['summary'], 2)} [{item['cite']}]" for item in result["parks"]))
             if query.wants_wildlife and query.wants_beach is False:
                 parts.append(
                     "Ngorongoro Conservation Area iko chini ya NCAA, si TANAPA: " + NCAA_URL
@@ -247,7 +247,7 @@ def _accommodation(query, tools):
     if options:
         cite = tools._cite(
             document_id="tanapa_accommodation",
-            title="Accommodation types in national parks — TANAPA",
+            title="Accommodation types in national parks (TANAPA)",
             organization="TANAPA",
             source_url="https://www.tanzaniaparks.go.tz/tourism/visitor-information/accommodation",
             excerpt=", ".join(item["title"] for item in options),
@@ -272,7 +272,7 @@ def _scope(query, tools):
         answer = (
             f"Ngorongoro iko chini ya Mamlaka ya Hifadhi ya Ngorongoro (NCAA), si TANAPA, hivyo sitaji ada zake [{cite}]. Angalia {NCAA_URL}."
             if sw
-            else f"Ngorongoro Conservation Area is run by the Ngorongoro Conservation Area Authority (NCAA), not TANAPA, so I don't quote its fees or rules [{cite}]. Check {NCAA_URL}. I can help with the TANAPA parks around it — Serengeti, Tarangire and Lake Manyara."
+            else f"Ngorongoro Conservation Area is run by the Ngorongoro Conservation Area Authority (NCAA), not TANAPA, so I don't quote its fees or rules [{cite}]. Check {NCAA_URL}. I can help with the TANAPA parks around it: Serengeti, Tarangire and Lake Manyara."
         )
     else:
         cite = tools._cite(document_id="registry:ttb", title="Tanzania Tourist Board", organization="Tanzania Tourist Board", source_url=TTB_URL, excerpt="Destinations outside the TANAPA national parks.", kind="pointer")
@@ -352,9 +352,9 @@ def _fee_summary(result: dict, tools: Toolbox, sw: bool) -> str:
     mine = [row for row in rows if row["visitor"] == wanted] or rows
     shown = mine[:4]
     head = (
-        f"**{result['park']} — {result['category']}**, {wanted}, inatumika {result['travel_date']} [{result['cite']}]:"
+        f"**{result['park']}: {result['category']}**, {wanted}, inatumika {result['travel_date']} [{result['cite']}]:"
         if sw
-        else f"**{result['park']} — {result['category']}** for {wanted}, in force on {result['travel_date']} [{result['cite']}]:"
+        else f"**{result['park']}: {result['category']}** for {wanted}, in force on {result['travel_date']} [{result['cite']}]:"
     )
     lines = [f"- {row['item']}: TZS {_money(row['tzs'])} (≈ USD {_money(row['usd_approx'])})" + (f", {row['season'].lower()} season" if row["season"].lower() not in {"all"} else "") for row in shown]
     valid = shown[0]["valid"] if shown else ""
@@ -387,7 +387,7 @@ def _visa_sentence(visa: dict, sw: bool) -> str:
     if visa["visa"] == "Not required":
         return f"**Visa:** {visa['passport']} passport holders don't need a visa for Tanzania [{visa['cite']}]. Carry a return ticket."
     return (
-        f"**Visa:** {visa['passport']} — {visa['visa']}{fee} [{visa['cite']}]. Apply only at {visa['apply_only_at']}; your passport needs 6 months' validity and a blank page."
+        f"**Visa for {visa['passport']} passports:** {visa['visa']}{fee} [{visa['cite']}]. Apply only at {visa['apply_only_at']}; your passport needs 6 months' validity and a blank page."
     )
 
 

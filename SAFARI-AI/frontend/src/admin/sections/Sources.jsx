@@ -2,17 +2,17 @@ import { useState } from "react";
 import { queries, runHarvest } from "../api";
 import { useQuery } from "../charts";
 import { invalidate } from "../data";
-import { ago, dateTime, label, number } from "../format";
+import { EMPTY, ago, dateTime, label, number } from "../format";
 import { Card, Empty, ErrorNote, Status, sourceTone } from "../ui";
 
 function records(value) {
-  if (value == null) return "—";
+  if (value == null) return EMPTY;
   if (typeof value !== "object") return number(value);
   return (
     Object.entries(value)
       .filter(([, count]) => count)
       .map(([key, count]) => `${number(count)} ${key.replace(/_/g, " ")}`)
-      .join(" · ") || "—"
+      .join(" · ") || EMPTY
   );
 }
 
@@ -139,7 +139,7 @@ export default function Sources() {
                     </td>
                     <td className="num">{number(run.tariff_rows)}</td>
                     <td className="num">{number(run.parks)}</td>
-                    <td className="num">{run.duration_s != null ? `${run.duration_s} s` : "—"}</td>
+                    <td className="num">{run.duration_s != null ? `${run.duration_s} s` : EMPTY}</td>
                   </tr>
                 ))}
               </tbody>

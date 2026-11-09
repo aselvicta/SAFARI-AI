@@ -9,6 +9,7 @@ from collections.abc import Callable
 from services.agent.prompts import system_prompt
 from services.agent.tools import TOOL_SCHEMAS, Toolbox
 from services.common.settings import Settings
+from services.common.typography import DashStream, clean_dashes
 from services.generation.llm import LLMError, stream_turn
 
 Emit = Callable[[str, dict], None]
@@ -35,6 +36,12 @@ class StatusFilter:
         self.emit = emit
         self.buffer = ""
         self.closed = False
+        self.dashes = DashStream()  # the house style applies to text as it streams, not only to the final answer
+
+    def _send(self, text: str) -> None:
+        text = self.dashes.feed(text)
+        if text:
+            self.emit("delta", {"text": text})
 
     def feed(self, text: str) -> None:
         if self.closed:
@@ -43,18 +50,26 @@ class StatusFilter:
         if "[[" in self.buffer:
             head = self.buffer.split("[[", 1)[0]
             if head:
-                self.emit("delta", {"text": head})
+                self._send(head)
+            tail = self.dashes.flush()
+            if tail:
+                self.emit("delta", {"text": tail})
             self.buffer = ""
             self.closed = True
             return
         keep = 1 if self.buffer.endswith("[") else 0
         out, self.buffer = self.buffer[: len(self.buffer) - keep], self.buffer[len(self.buffer) - keep :]
         if out:
-            self.emit("delta", {"text": out})
+            self._send(out)
 
     def flush(self) -> None:
-        if self.buffer and not self.closed:
-            self.emit("delta", {"text": self.buffer})
+        if self.closed:
+            return
+        if self.buffer:
+            self._send(self.buffer)
+        tail = self.dashes.flush()
+        if tail:
+            self.emit("delta", {"text": tail})
         self.buffer = ""
 
 
@@ -138,7 +153,7 @@ def run_agent(question: str, history: list[dict], tools: Toolbox, settings: Sett
             raise Ungrounded(", ".join(problems), "figures")
         if uncited:
             raise Ungrounded("no source cited", "citations")
-        return clean_citations(text, tools), status
+        return clean_dashes(clean_citations(text, tools)), status
     raise LLMError("the agent did not finish within the round limit", "round_limit")
 
 

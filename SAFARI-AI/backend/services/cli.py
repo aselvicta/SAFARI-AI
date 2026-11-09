@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> None:
         print(result["answer"])
         print()
         for citation in result["citations"]:
-            print(f"[{citation['n']}] {citation['title']} — {citation['source_url']}")
+            print(f"[{citation['n']}] {citation['title']}: {citation['source_url']}")
         print(f"\n{result['confidence_label']} · {result['generator']} · {result['intent']} · tools: {', '.join(result['tool_calls']) or 'none'}")
         return
     if args.command == "ingest":

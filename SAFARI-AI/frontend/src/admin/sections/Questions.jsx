@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { downloadQuestionsCsv, queries } from "../api";
 import { useQuery } from "../charts";
-import { dateTime, label, ms } from "../format";
+import { EMPTY, dateTime, label, ms } from "../format";
 import { Card, Empty, ErrorNote, Pager, Search, Select, Skeleton, Status } from "../ui";
 
 const LIMIT = 50;
@@ -102,9 +102,9 @@ export default function Questions({ days, params }) {
                           </button>
                         </td>
                         <td>{label(row.intent)}</td>
-                        <td>{(row.parks || []).map((slug) => names[slug] || slug).join(", ") || "—"}</td>
+                        <td>{(row.parks || []).map((slug) => names[slug] || slug).join(", ") || "None"}</td>
                         <td>{outcome(row)}</td>
-                        <td>{row.generator || "—"}</td>
+                        <td>{row.generator || EMPTY}</td>
                         <td className="num nowrap">{ms(row.latency_ms)}</td>
                       </tr>
                       {expanded ? (
@@ -112,16 +112,16 @@ export default function Questions({ days, params }) {
                           <td colSpan={7}>
                             <dl className="kv-grid small">
                               <div><dt>Language</dt><dd>{row.language === "sw" ? "Kiswahili" : "English"}</dd></div>
-                              <div><dt>Confidence</dt><dd>{row.confidence_label || "—"} {row.confidence != null ? `(${row.confidence})` : ""}</dd></div>
+                              <div><dt>Confidence</dt><dd>{row.confidence_label || EMPTY} {row.confidence != null ? `(${row.confidence})` : ""}</dd></div>
                               <div><dt>Citations</dt><dd>{row.citations ?? 0}</dd></div>
-                              <div><dt>Answer cards</dt><dd>{(row.blocks || []).join(", ") || "—"}</dd></div>
-                              <div><dt>Tools</dt><dd>{(row.tools || []).join(", ") || "—"}</dd></div>
-                              <div><dt>Fallback</dt><dd>{row.fallback ? label(row.fallback) : row.generator === "agent" ? "None (DeepSeek)" : "—"}</dd></div>
-                              <div><dt>Recommended</dt><dd>{(row.recommended || []).map((slug) => names[slug] || slug).join(", ") || "—"}</dd></div>
-                              <div><dt>Passport</dt><dd>{row.passport || "—"}</dd></div>
+                              <div><dt>Answer cards</dt><dd>{(row.blocks || []).join(", ") || "None"}</dd></div>
+                              <div><dt>Tools</dt><dd>{(row.tools || []).join(", ") || "None"}</dd></div>
+                              <div><dt>Fallback</dt><dd>{row.fallback ? label(row.fallback) : row.generator === "agent" ? "None (DeepSeek)" : EMPTY}</dd></div>
+                              <div><dt>Recommended</dt><dd>{(row.recommended || []).map((slug) => names[slug] || slug).join(", ") || "None"}</dd></div>
+                              <div><dt>Passport</dt><dd>{row.passport || "Not given"}</dd></div>
                               <div><dt>Fee class</dt><dd>{label(row.visitor_class)}</dd></div>
-                              <div><dt>Trip</dt><dd>{[row.days && `${row.days} days`, row.adults && `${row.adults} adults`, row.children && `${row.children} children`].filter(Boolean).join(", ") || "—"}</dd></div>
-                              <div><dt>Session</dt><dd><code>{row.session || "—"}</code></dd></div>
+                              <div><dt>Trip</dt><dd>{[row.days && `${row.days} days`, row.adults && `${row.adults} adults`, row.children && `${row.children} children`].filter(Boolean).join(", ") || "Not given"}</dd></div>
+                              <div><dt>Session</dt><dd><code>{row.session || EMPTY}</code></dd></div>
                               <div><dt>Channel</dt><dd>{row.channel}</dd></div>
                               {row.error ? <div className="wide"><dt>Error</dt><dd>{row.error}</dd></div> : null}
                             </dl>

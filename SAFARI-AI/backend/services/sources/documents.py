@@ -92,7 +92,7 @@ class PageSource:
 
 
 PAGES = [
-    PageSource("tanapa_plan", "tanapa_plan_a_trip", "Plan a trip — TANAPA", "TANAPA", "guideline", "https://www.tanzaniaparks.go.tz/plan-a-trip"),
+    PageSource("tanapa_plan", "tanapa_plan_a_trip", "Plan a trip (TANAPA)", "TANAPA", "guideline", "https://www.tanzaniaparks.go.tz/plan-a-trip"),
     PageSource("immigration", "immigration_guidelines_page", "Tanzania eVisa guidelines", "Tanzania Immigration", "visa", "https://visa.immigration.go.tz/guidelines"),
     PageSource("ncaa", "ncaa_about", "About the Ngorongoro Conservation Area Authority", "NCAA", "authority", "https://www.ncaa.go.tz/about-ncaa/"),
     PageSource("tawa", "tawa_home", "Tanzania Wildlife Management Authority", "TAWA", "authority", "https://www.tawa.go.tz/"),

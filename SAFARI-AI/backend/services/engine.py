@@ -15,6 +15,7 @@ from services.catalog import seed_catalog
 from services.common.embeddings import HashEmbedder
 from services.common.scoring import HybridWeights, confidence_label
 from services.common.settings import Settings, load_settings
+from services.common.typography import clean
 from services.common.store import JsonStore
 from services.conversation.memory import SessionMemory
 from services.conversation.understand import understand
@@ -56,7 +57,7 @@ class Assistant:
         profile = _clean_profile(profile)
         history = self.memory.history(session_id)
         if _GREETING.match(question):
-            result = _greeting(question, question_date, language)
+            result = clean(_greeting(question, question_date, language))
             self.memory.remember(session_id, question, result["answer"])
             return result
         query = understand(question, self.store.list_parks(), profile=profile, history=history)
@@ -119,7 +120,9 @@ class Assistant:
             "fees": [row for block in tools.blocks if block["type"] == "fees" for row in block["rows"]],
             "outside_scope": [{"name": name} for name in query.scope_hits],
         }
-        self.memory.remember(session_id, question, answer)
+        # House style on everything the visitor sees: the answer, cited titles and snippets, answer cards.
+        result = clean(result)
+        self.memory.remember(session_id, question, result["answer"])
         return result
 
 
@@ -160,7 +163,7 @@ def _clean_profile(profile: dict | None) -> dict:
 def _greeting(question: str, question_date: date, language: str | None) -> dict:
     swahili = language == "sw" or bool(re.match(r"^(habari|mambo|karibu|niaje|hujambo|shikamoo|jambo)", question.strip(), re.IGNORECASE))
     answer = (
-        "Karibu! Mimi ni SafariAI, dawati la wageni la hifadhi za taifa za Tanzania. Niambie hifadhi unayotaka, siku ngapi, na mnasafiri wangapi — nitakupa ada rasmi za TANAPA, wanyama, malazi na viza."
+        "Karibu! Mimi ni SafariAI, dawati la wageni la hifadhi za taifa za Tanzania. Niambie hifadhi unayotaka, siku ngapi, na mnasafiri wangapi, nami nitakupa ada rasmi za TANAPA, wanyama, malazi na viza."
         if swahili
         else "Karibu! I'm SafariAI, the visitor desk for Tanzania's national parks. Tell me where you'd like to go, for how many days and who's travelling, and I'll give you official TANAPA fees, wildlife, places to stay and visa rules."
     )

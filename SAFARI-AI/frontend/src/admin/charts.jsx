@@ -1,6 +1,6 @@
 // Small SVG/CSS charts for the dashboard: a time series with crosshair, ranked bars, hourly columns.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { compact, formatDay } from "./format";
+import { EMPTY, compact, formatDay } from "./format";
 
 function useWidth(floor = 240, initial = 600) {
   const ref = useRef(null);
@@ -170,7 +170,7 @@ export function TimeSeries({ rows, series, height = 220, label, format = (value)
             {series.map((item) => (
               <div key={item.key} className="viz-tip-row">
                 <span className="viz-key-line" style={{ background: item.color }} />
-                <strong>{active[item.key] == null ? "—" : format(active[item.key])}</strong>
+                <strong>{active[item.key] == null ? EMPTY : format(active[item.key])}</strong>
                 <span>{item.label}</span>
               </div>
             ))}
@@ -202,7 +202,7 @@ export function TimeSeries({ rows, series, height = 220, label, format = (value)
                   </td>
                   {series.map((item) => (
                     <td key={item.key} className="num">
-                      {row[item.key] == null ? "—" : format(row[item.key])}
+                      {row[item.key] == null ? EMPTY : format(row[item.key])}
                     </td>
                   ))}
                 </tr>
@@ -323,7 +323,7 @@ export function HourColumns({ hours, height = 140 }) {
   );
 }
 
-/** Completeness or a share, 0–1, as a thin meter. */
+/** Completeness or a share, 0 to 1, as a thin meter. */
 export function Meter({ value, label }) {
   const percent = Math.round((value || 0) * 100);
   const tone = percent >= 100 ? "ok" : percent >= 60 ? "mid" : "low";
@@ -461,7 +461,7 @@ export function Heatmap({ grid, label = "Questions by weekday and hour, East Afr
         {active ? (
           <div className="viz-tip" style={{ left: Math.min(width - 170, Math.max(0, active.x - 60)), top: active.y + cellH + 6 }} role="status">
             <div className="viz-tip-head">
-              {WEEKDAYS[active.day]} {hourText(active.hour)}–{hourText((active.hour + 1) % 24)}
+              {WEEKDAYS[active.day]} {hourText(active.hour)} to {hourText((active.hour + 1) % 24)}
             </div>
             <strong>{active.value.toLocaleString()}</strong> <span>questions{total ? ` · ${Math.round((active.value / total) * 100)}%` : ""}</span>
           </div>
@@ -629,14 +629,14 @@ export function PairedBars({ rows, series, limit = 12, empty = "No data yet." })
   );
 }
 
-/** A share (0–1) against its whole: accent fill on a lighter step of the same hue. */
+/** A share (0 to 1) against its whole: accent fill on a lighter step of the same hue. */
 export function ShareMeter({ value, label, hint }) {
   const percent = value == null ? null : Math.round(value * 100);
   return (
     <div className="share-meter">
       <div className="share-meter-head">
         <span className="share-meter-label">{label}</span>
-        <strong>{percent == null ? "—" : `${percent}%`}</strong>
+        <strong>{percent == null ? EMPTY : `${percent}%`}</strong>
       </div>
       <span className="share-meter-track" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? 0} aria-label={label}>
         <span style={{ width: `${percent ?? 0}%` }} />

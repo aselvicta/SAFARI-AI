@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { queries } from "../api";
 import { BarList, Heatmap, PairedBars, SegmentedBar, ShareMeter, TimeSeries, useQuery } from "../charts";
-import { dateTime, label, ms, number, percent } from "../format";
+import { EMPTY, dateTime, label, ms, number, percent } from "../format";
 import { Card, Empty, ErrorNote, Pager, Skeleton, StatTile, Tabs } from "../ui";
 import { OutcomePanel } from "./Overview";
 
@@ -14,8 +14,8 @@ const TABS = [
 // Categorical slots in fixed order (validated on the card surface); a sixth part folds into "Other".
 const SLOTS = ["var(--viz-1)", "var(--viz-2)", "var(--viz-3)", "var(--viz-4)", "var(--viz-5)", "var(--viz-muted)"];
 const SLOT_INK = [null, null, null, "#0b0b0b", null, null];
-const TRIP_ORDER = ["1–2 days", "3–4 days", "5–7 days", "8+ days"];
-const GROUP_ORDER = ["Solo", "Couple", "3–5 people", "6+ people"];
+const TRIP_ORDER = ["1-2 days", "3-4 days", "5-7 days", "8+ days"];
+const GROUP_ORDER = ["Solo", "Couple", "3-5 people", "6+ people"];
 const CONFIDENCE_ORDER = ["HIGH", "MEDIUM", "LOW"];
 const LANGUAGES = { en: "English", sw: "Kiswahili", de: "German", fr: "French", es: "Spanish", it: "Italian", zh: "Chinese" };
 const GAP_PAGE = 10;
@@ -41,9 +41,9 @@ function Demand({ data }) {
     <>
       <div className="kpi-band four">
         <StatTile label="Sessions" value={number(data.kpis.current.sessions)} current={data.kpis.current.sessions} previous={data.kpis.previous.sessions} />
-        <StatTile label="Questions per session" value={data.kpis.current.questions_per_session ? number(data.kpis.current.questions_per_session, 1) : "—"} />
-        <StatTile label="Busiest day" value={busiest ? number(busiest.questions) : "—"} hint={busiest ? new Date(`${busiest.date}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) : ""} />
-        <StatTile label="Daily average" value={series.length ? number(data.kpis.current.questions / Math.max(1, series.length - 1), 1) : "—"} hint="questions per day" />
+        <StatTile label="Questions per session" value={data.kpis.current.questions_per_session ? number(data.kpis.current.questions_per_session, 1) : EMPTY} />
+        <StatTile label="Busiest day" value={busiest ? number(busiest.questions) : EMPTY} hint={busiest ? new Date(`${busiest.date}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) : ""} />
+        <StatTile label="Daily average" value={series.length ? number(data.kpis.current.questions / Math.max(1, series.length - 1), 1) : EMPTY} hint="questions per day" />
       </div>
       <Card title="Visitor sessions per day" subtitle="Unique visitors, counted by hashed session">
         <TimeSeries rows={series} series={[{ key: "sessions", label: "Sessions", color: "var(--viz-1)", area: true }]} label="Visitor sessions per day" height={220} />

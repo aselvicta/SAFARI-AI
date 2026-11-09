@@ -223,7 +223,7 @@ class Toolbox:
         self._add_block({"type": "parks", "parks": [_public_card(card)]})
         page_cite = self._cite(
             document_id=f"tanapa_live_park_{slug}",
-            title=f"{card['name']} — TANAPA park page",
+            title=f"{card['name']}: TANAPA park page",
             organization="TANAPA",
             source_url=card["source_url"],
             excerpt=card["summary"] or card["about"][:300],
@@ -278,7 +278,7 @@ class Toolbox:
                     "summary": card["summary"],
                     "cite": self._cite(
                         document_id=f"tanapa_live_park_{card['slug']}",
-                        title=f"{card['name']} — TANAPA park page",
+                        title=f"{card['name']}: TANAPA park page",
                         organization="TANAPA",
                         source_url=card["source_url"],
                         excerpt=card["summary"],
@@ -299,7 +299,7 @@ class Toolbox:
         self._add_block(block)
         cite = self._cite(
             document_id="immigration_visa_eligibility",
-            title="List of countries with visa eligibility — Tanzania Immigration",
+            title="List of countries with visa eligibility (Tanzania Immigration)",
             organization="Tanzania Immigration",
             source_url=block["source_url"],
             excerpt=f"{block['country']}: {block['visa']} {block['fee']}".strip(),

@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { queries, runEvaluation } from "../api";
 import { useQuery } from "../charts";
-import { bytes, dateTime, duration, label, ms, number, percent } from "../format";
+import { EMPTY, bytes, dateTime, duration, label, ms, number, percent } from "../format";
 import { Card, Empty, ErrorNote, Status } from "../ui";
 
 function check(value) {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return EMPTY;
   return value ? <Status tone="ok">pass</Status> : <Status tone="critical">fail</Status>;
 }
 
@@ -76,7 +76,7 @@ export default function System() {
                         <td>{label(row.intent)}</td>
                         <td>{check(row.abstain_ok)}</td>
                         <td>{check(row.contains_ok)}</td>
-                        <td className="num">{row.park_recall != null ? percent(row.park_recall) : "—"}</td>
+                        <td className="num">{row.park_recall != null ? percent(row.park_recall) : EMPTY}</td>
                         <td>{row.cited ? "yes" : "no"}</td>
                         <td>{row.confidence_label}</td>
                         <td className="num">{ms(row.latency_ms)}</td>
@@ -97,9 +97,9 @@ export default function System() {
           <Card title="Configuration" subtitle="Read from the server environment (backend/.env)">
             <dl className="kv-grid">
               <div><dt>LLM</dt><dd>{info.llm_enabled ? <Status tone="ok">{`${info.llm_provider} · ${info.llm_model}`}</Status> : <Status tone="critical">off</Status>}</dd></div>
-              <div><dt>Last LLM success</dt><dd>{info.llm_health?.last_ok_at ? dateTime(info.llm_health.last_ok_at) : "—"}</dd></div>
+              <div><dt>Last LLM success</dt><dd>{info.llm_health?.last_ok_at ? dateTime(info.llm_health.last_ok_at) : "Not yet"}</dd></div>
               <div><dt>Last LLM error</dt><dd>{info.llm_health?.last_error_at ? `${dateTime(info.llm_health.last_error_at)} · ${label(info.llm_health.last_error_kind)}` : "None"}</dd></div>
-              <div><dt>LLM calls · errors · retries</dt><dd>{info.llm_health ? `${number(info.llm_health.calls)} · ${number(info.llm_health.errors)} · ${number(info.llm_health.retries)}` : "—"}</dd></div>
+              <div><dt>LLM calls · errors · retries</dt><dd>{info.llm_health ? `${number(info.llm_health.calls)} · ${number(info.llm_health.errors)} · ${number(info.llm_health.retries)}` : EMPTY}</dd></div>
               <div><dt>LLM endpoint</dt><dd>{info.llm_base_url || "default"}</dd></div>
               <div><dt>Store</dt><dd>{info.store}</dd></div>
               <div><dt>Auto-sync</dt><dd>{info.refresh_hours ? `every ${info.refresh_hours} h` : "off"}</dd></div>

@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { queries } from "../api";
 import { BarList, Meter, useQuery } from "../charts";
-import { label, number, percent } from "../format";
+import { EMPTY, label, number, percent } from "../format";
 import { Card, ErrorNote, Search, Select, Skeleton, Status } from "../ui";
 
 function range(values, unit) {
-  if (!values) return "—";
+  if (!values) return EMPTY;
   const [low, high] = values;
   const text = (value) => (unit === "USD" ? `USD ${number(value, 2)}` : `TZS ${number(value)}`);
-  return low === high ? text(low) : `${text(low)} – ${text(high)}`;
+  return low === high ? text(low) : `${text(low)} to ${text(high)}`;
 }
 
 export default function Parks({ go }) {
@@ -79,7 +79,7 @@ export default function Parks({ go }) {
                   </td>
                   <td>{label(park.circuit)}</td>
                   <td className="num">{number(park.area_km2)}</td>
-                  <td className="num">{park.established_year || "—"}</td>
+                  <td className="num">{park.established_year || EMPTY}</td>
                   <td className="nowrap">
                     {range(park.nr_adult_entrance_tzs, "TZS")}
                     <span className="cell-sub">≈ {range(park.nr_adult_entrance_usd, "USD")}</span>

@@ -55,7 +55,7 @@ export function StatTile({ label, value, current, previous, kind = "count", good
   );
 }
 
-const STATUS_ICON = { ok: "✓", good: "✓", error: "✕", critical: "✕", warning: "!", warn: "!", info: "i", empty: "–", open: "•" };
+const STATUS_ICON = { ok: "✓", good: "✓", error: "✕", critical: "✕", warning: "!", warn: "!", info: "i", empty: "·", open: "•" };
 
 /** A state badge: icon + label, so colour never carries the meaning alone. */
 export function Status({ tone = "neutral", children }) {
@@ -122,7 +122,7 @@ export function Pager({ total, limit, offset, onChange, newer = "← Previous", 
   return (
     <nav className="pager" aria-label="Pages">
       <span className="pager-range">
-        {(offset + 1).toLocaleString()}–{Math.min(total, offset + limit).toLocaleString()} of {total.toLocaleString()}
+        {(offset + 1).toLocaleString()} to {Math.min(total, offset + limit).toLocaleString()} of {total.toLocaleString()}
       </span>
       <button type="button" className="dash-button" disabled={page <= 1} onClick={() => onChange(Math.max(0, offset - limit))}>
         {newer}

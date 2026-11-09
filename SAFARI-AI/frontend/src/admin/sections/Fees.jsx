@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { queries } from "../api";
 import { BarList, useQuery } from "../charts";
-import { formatDay, label, number } from "../format";
+import { EMPTY, formatDay, label, number } from "../format";
 import { Card, Empty, ErrorNote, Pager, Search, Select, Skeleton, Status } from "../ui";
 
 const LIMIT = 50;
 const STATE_TONE = { in_force: "ok", upcoming: "info", expired: "neutral" };
-const AGE_LABEL = { adult: "adult", child_5_15: "child 5–15", child_under_5: "child under 5" };
+const AGE_LABEL = { adult: "adult", child_5_15: "child 5-15", child_under_5: "child under 5" };
 const VISITOR_LABEL = { non_resident: "Non-resident", expatriate: "Expatriate", eac_citizen: "EAC citizen", any: "Any" };
 
 export default function Fees({ params }) {
@@ -47,7 +47,7 @@ export default function Fees({ params }) {
                 <tbody>
                   {stock.tariff_windows.map((window) => (
                     <tr key={`${window.valid_from}-${window.valid_until}`}>
-                      <td>{window.valid_from ? formatDay(window.valid_from, true) + ` ${window.valid_from.slice(0, 4)}` : "—"}</td>
+                      <td>{window.valid_from ? formatDay(window.valid_from, true) + ` ${window.valid_from.slice(0, 4)}` : EMPTY}</td>
                       <td>{window.valid_until ? formatDay(window.valid_until, true) + ` ${window.valid_until.slice(0, 4)}` : "open"}</td>
                       <td className="num">{number(window.rows)}</td>
                       <td>
@@ -104,11 +104,11 @@ export default function Fees({ params }) {
                       <span className="cell-sub">{row.unit}</span>
                     </td>
                     <td>{VISITOR_LABEL[row.visitor] || row.visitor_label || row.visitor}{row.age && row.age !== "any" ? `, ${AGE_LABEL[row.age] || label(row.age)}` : ""}</td>
-                    <td>{row.season_label || "—"}</td>
+                    <td>{row.season_label || "All"}</td>
                     <td className="num">{number(row.amount)}</td>
-                    <td className="num">{row.usd != null ? number(row.usd, 2) : "—"}</td>
+                    <td className="num">{row.usd != null ? number(row.usd, 2) : EMPTY}</td>
                     <td className="nowrap">
-                      {row.valid_from || "—"} → {row.valid_until || "open"}
+                      {row.valid_from || "open"} → {row.valid_until || "open"}
                       {row.state !== "in_force" ? <span className="cell-sub">{label(row.state)}</span> : null}
                     </td>
                   </tr>

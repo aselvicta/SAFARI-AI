@@ -48,6 +48,27 @@ From `backend/`:
 
 While it runs, the server refreshes the TANAPA API data every `SAFARI_REFRESH_HOURS` (default 12).
 
+## Deploy (Render + Cloudflare Pages)
+
+The API and PostgreSQL run on Render. The frontend runs on Cloudflare Pages, where a Pages Function (`frontend/functions/v1/[[path]].js`) forwards `/v1/*` to Render, so the browser talks to one origin and needs no CORS setup. The API creates its database schema on start, so a new database needs no manual step.
+
+**1. Render.** Push the repo to GitHub. In the Render dashboard choose **New → Blueprint** and pick the repo. `render.yaml` creates the `safari-db` database (pgvector, private to Render), the `safari-ai-api` Docker service and a 1 GB disk at `/data` for analytics, raw snapshots and uploads. Render asks for `DEEPSEEK_API_KEY`, `SAFARI_ADMIN_USERNAME` and `SAFARI_ADMIN_PASSWORD`, and generates `SAFARI_SECRET_KEY` and `SAFARI_PROXY_SECRET`. When the deploy is live, `https://<service>.onrender.com/v1/health` answers, and the TANAPA fees and parks sync on their own within a minute. Copy the service URL and the generated `SAFARI_PROXY_SECRET` (service → Environment).
+
+**2. Cloudflare Pages.** Go to **Workers & Pages → Create → Pages → Connect to Git** and choose the repo. Use these settings:
+
+| Setting | Value |
+|---|---|
+| Root directory | `frontend` |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Variables | `API_ORIGIN` = `https://<service>.onrender.com`, `PROXY_SECRET` = the Render `SAFARI_PROXY_SECRET`, `NODE_VERSION` = `22` |
+
+Encrypt `PROXY_SECRET` as a secret. Once the site is deployed, open `/admin`, sign in, and run **Sources & sync → full harvest** once to index the publications and pages. To use your own domain, go to **Custom domains** on the Pages project.
+
+With `SAFARI_PROXY_SECRET` set, the API refuses `/v1` requests that don't come through the Pages Function (except `/v1/health`), which keeps the visitor IP used for rate limits trustworthy. Pushes to `main` redeploy both sides. Render rebuilds only when `backend/` changes. `frontend/public/_headers` sets security headers and long caching for hashed assets.
+
+To test the function locally: `npm run build && npx wrangler pages dev dist --binding API_ORIGIN=http://127.0.0.1:8000` in `frontend/`.
+
 ## Admin dashboard
 
 `/admin` is for the people who run the desk.

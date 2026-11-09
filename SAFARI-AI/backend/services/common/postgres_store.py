@@ -10,6 +10,11 @@ import contextlib
 import json
 
 from services.common.models import Chunk, Document, FeeRecord, Park, Record
+from services.common.settings import ROOT
+
+# Every statement in it is idempotent, so it runs on each start and a fresh database needs no manual setup.
+SCHEMA_FILE = ROOT / "postgres" / "init.sql"
+SCHEMA_LOCK_ID = 7_310_442  # pg_advisory_lock key, so two instances starting together don't race
 
 
 class PostgresStore:
@@ -19,6 +24,17 @@ class PostgresStore:
 
         self.conn = psycopg.connect(dsn, row_factory=dict_row, autocommit=True)
         self.version = 0
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        if not SCHEMA_FILE.is_file():
+            return
+        with self.conn.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_lock(%s)", (SCHEMA_LOCK_ID,))
+            try:
+                cursor.execute(SCHEMA_FILE.read_text())
+            finally:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", (SCHEMA_LOCK_ID,))
 
     def batch(self):
         return contextlib.nullcontext(self)

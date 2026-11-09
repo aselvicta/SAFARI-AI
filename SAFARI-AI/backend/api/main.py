@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -126,6 +127,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Behind a proxy (the Cloudflare Pages function), SAFARI_PROXY_SECRET makes the API answer only
+# requests that came through it, so the X-Forwarded-For used for rate limits can be trusted.
+# /v1/health stays open for the host's health checks.
+PROXY_SECRET = os.environ.get("SAFARI_PROXY_SECRET", "")
+
+
+@app.middleware("http")
+async def require_proxy_secret(request: Request, call_next):
+    path = request.url.path
+    if PROXY_SECRET and path.startswith("/v1/") and path != "/v1/health":
+        sent = request.headers.get("x-proxy-secret", "")
+        if not hmac.compare_digest(sent.encode(), PROXY_SECRET.encode()):
+            return JSONResponse({"detail": "Forbidden"}, status_code=403)
+    return await call_next(request)
+
+
 app.include_router(login_router)
 app.include_router(admin_router)
 if (DIST_DIR / "assets").is_dir():

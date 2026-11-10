@@ -37,16 +37,22 @@ When you ask something, SafariAI searches the official fee tables, park pages an
 
 Think of a park desk officer who opens the official rate book before quoting you a price.
 
-### Why it's called hybrid RAG
+### Why hybrid RAG
 
-SafariAI doesn't rely on a single way of finding information. It combines a few parts:
+A plain RAG system embeds the question, pulls the nearest text chunks from a vector store and hands them to the model. That breaks down here. Fees are numbers in a table, not prose, and a vector search alone can't tell an expired tariff from the current one. So SafariAI combines structured lookups with two kinds of search, and ranks the results with rules about authority and dates.
 
-1. **Exact lookups.** Fees, visa rules and park facts come straight from official tables, the way you'd read a price list. Trip totals are worked out by a calculator, not by the AI.
-2. **Keyword search.** For questions answered in TANAPA's documents, it finds passages that contain the exact words asked about, like "drone", "camping" or "chimpanzee".
-3. **Similarity search.** At the same time, it finds passages whose wording is close to the question even when the exact words differ.
-4. **Ranking.** The results of both searches are combined, and official documents that are valid today are put first, so an old price list never beats the current one.
-5. **Writing the answer.** DeepSeek, the AI model, writes a clear reply using only what the lookups and searches found.
-6. **Checking.** Every price in the reply is compared with the official data, and the sources are attached. If something doesn't match, the answer is rewritten or replaced with a safe template.
+- **Structured tools.** Fees, visa rules and park facts are exact lookups on records synced from TANAPA's API, filtered by the travel date. Trip totals come from a calculator tool. DeepSeek reaches all of these through function calling and never does the arithmetic itself.
+- **Chunking.** Documents (PDFs, park pages, FAQs) are split into chunks of about 900 characters with a 140-character overlap. Each chunk keeps its document's authority, status and validity dates.
+- **BM25 keyword search.** Scores chunks on exact term matches (k1 = 1.5, b = 0.75), which catches names and specific words like "drone", "Gombe" or "camping fee".
+- **Vector search.** Every chunk has a 384-dimension vector, compared with the question by cosine similarity. The vectors are hashed from words and word pairs, which is fast and needs no model download. A sentence-transformer can replace them without changing the 384-dimension `pgvector` column.
+- **Reranking and fusion.** The scores are blended, with weight on authority and freshness so official, in-force documents come first:
+
+  ```text
+  score = 0.34 × vector + 0.24 × BM25 + 0.18 × rerank + 0.14 × authority + 0.10 × freshness
+  ```
+
+  A superseded document drops to a quarter of its score when a current one exists, and at most two chunks per document reach the model, so one long PDF can't crowd out the rest.
+- **Grounded generation.** DeepSeek writes from the tool results only, citing each source as [n]. A grounding check rejects any figure that no tool returned and any answer that cites nothing. The draft is rewritten once, then replaced by a deterministic composer that uses the same tools.
 
 ![An answer with its sources](SAFARI-AI/docs/screenshots/answer-with-sources.jpg)
 

@@ -1,4 +1,6 @@
-# SafariAI Tanzania
+# SafariAI Tanzania: technical reference
+
+This is the developer reference: setup, deployment, the admin dashboard, sources, answering rules and the API. For what SafariAI is and why it exists, start with the [project overview](../README.md).
 
 A visitor agent for Tanzania's 21 national parks. It answers from official sources: live TANAPA fees for the travel date, park pages, activities, accommodation, contacts, and the immigration visa list. Every fact carries a citation, and it says so plainly when the sources don't cover a question.
 

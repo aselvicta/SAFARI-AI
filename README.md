@@ -37,6 +37,17 @@ When you ask something, SafariAI searches the official fee tables, park pages an
 
 Think of a park desk officer who opens the official rate book before quoting you a price.
 
+### Why it's called hybrid RAG
+
+SafariAI doesn't rely on a single way of finding information. It combines a few parts:
+
+1. **Exact lookups.** Fees, visa rules and park facts come straight from official tables, the way you'd read a price list. Trip totals are worked out by a calculator, not by the AI.
+2. **Keyword search.** For questions answered in TANAPA's documents, it finds passages that contain the exact words asked about, like "drone", "camping" or "chimpanzee".
+3. **Similarity search.** At the same time, it finds passages whose wording is close to the question even when the exact words differ.
+4. **Ranking.** The results of both searches are combined, and official documents that are valid today are put first, so an old price list never beats the current one.
+5. **Writing the answer.** DeepSeek, the AI model, writes a clear reply using only what the lookups and searches found.
+6. **Checking.** Every price in the reply is compared with the official data, and the sources are attached. If something doesn't match, the answer is rewritten or replaced with a safe template.
+
 ![An answer with its sources](SAFARI-AI/docs/screenshots/answer-with-sources.jpg)
 
 ## Where it runs
@@ -49,6 +60,12 @@ Think of a park desk officer who opens the official rate book before quoting you
 | The AI model | DeepSeek |
 
 Everything runs on free plans while SafariAI is being tested.
+
+## About this project
+
+SafariAI is not a commercial product. It's a learning project, built to explore how an AI assistant can give answers people can actually trust.
+
+It's free to use. If it helps you, whether you're a visitor, a park, a tour operator or someone building solutions for the parks, you're welcome to use it and learn from it.
 
 ## For developers
 

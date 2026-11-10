@@ -1,90 +1,63 @@
+<div align="center">
+
+<img src="SAFARI-AI/backend/assets/brand/logo.png" alt="SafariAI logo" width="80" />
+
 # SafariAI Tanzania
 
-A visitor assistant for Tanzania's 21 national parks. Ask about entry fees, parks, wildlife, activities, accommodation or visas, and get an answer drawn from official TANAPA and Immigration sources. Every fact is cited, and the assistant says so when the sources don't cover a question.
+A helper for anyone planning a visit to Tanzania's national parks.
 
-## Features
+</div>
 
-- **Live official fees.** Reads TANAPA's tariff API and quotes only rates valid on your travel date (TZS, with an approximate USD figure).
-- **Trip cost estimates.** Computed from the fee table by code, not by the LLM, with resident (R), expatriate (EX) and non-resident (NR) rates chosen from your passport.
-- **Park guide.** Park profiles, activities, accommodation and contacts, plus park recommendations by wildlife and interest.
-- **Visa check.** Visa rule and fee for a given passport.
-- **Grounded answers.** Each number in an answer must appear in a tool result. If an answer fails that check, a deterministic composer writes it instead.
-- **English and Kiswahili.** Answers stream to a React web app that also has an admin view and downloadable PDF trip briefings.
+You ask a question, like *"How much is it to enter Serengeti?"* or *"Where can I see chimpanzees?"*, and SafariAI answers in English or Kiswahili. Every answer shows where its information came from, so you can check it yourself.
 
-## Tech stack
+![The SafariAI home page](SAFARI-AI/docs/screenshots/visitor-desk.jpg)
 
-| Layer | Tools |
+## What it helps with
+
+- Park entry fees for your travel dates, and what your whole group will pay
+- Picking a park for the animals and scenery you want to see
+- Visa rules for your passport
+- Activities, places to stay and park contacts
+- A trip summary you can download as a PDF
+
+## Where the information comes from
+
+All answers come from official sources:
+
+- **TANAPA** (Tanzania National Parks Authority): park fees, park pages, activities, accommodation and their published guides
+- **Tanzania Immigration**: the visa list for each country
+
+SafariAI checks TANAPA for new information twice a day. It is an independent project, not run by TANAPA or the government, so please confirm fees with the park authority before you pay or travel.
+
+## How it works
+
+SafariAI is a **RAG agent**. RAG stands for *retrieval-augmented generation*, which means it looks up the facts first and only then writes the answer.
+
+When you ask something, SafariAI searches the official fee tables, park pages and documents for what applies to you. Then an AI model (DeepSeek) writes the answer using only what was found. Before you see it, every price is checked against the official data and the sources are attached. If the official information doesn't cover your question, SafariAI tells you so and points you to the right office instead of guessing.
+
+Think of a park desk officer who opens the official rate book before quoting you a price.
+
+![An answer with its sources](SAFARI-AI/docs/screenshots/answer-with-sources.jpg)
+
+## Where it runs
+
+| Part | Service |
 |---|---|
-| Backend | Python 3.11+, FastAPI, Server-Sent Events |
-| Agent | DeepSeek (OpenAI-compatible tool calling); runs without an LLM using the deterministic composer |
-| Retrieval | BM25 + hashed vectors, reranked by intent, authority and freshness |
-| Storage | JSON file store, or PostgreSQL + pgvector |
-| Frontend | React 19, Vite |
+| The website | Cloudflare Pages |
+| The assistant behind it | Render |
+| The database | Supabase |
+| The AI model | DeepSeek |
 
-## Quick start
+Everything runs on free plans while SafariAI is being tested.
 
-```bash
-cd SAFARI-AI
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
-cp .env.example .env                        # optional: set DEEPSEEK_API_KEY
-.venv/bin/python -m services.cli harvest    # fetch official data (~1 min)
-(cd apps/web && npm install && npm run build)
-.venv/bin/uvicorn apps.api.main:app --reload
-```
+## For developers
 
-Open http://127.0.0.1:8000. The admin view is at `/admin`.
+Installation, settings and deployment are in the [technical guide](SAFARI-AI/README.md). For a closer look at how answers are put together, read [how it works](SAFARI-AI/docs/how-it-works.md).
 
-**Docker** (PostgreSQL + API): `cd SAFARI-AI && docker compose up --build`
+---
 
-## Usage
+<div align="center">
 
-```bash
-.venv/bin/python -m services.cli ask "Plan 3 days in Tarangire" --passport Germany --adults 2
-.venv/bin/python -m services.cli ask "Can I see elephants in Mikumi?" --no-llm
-.venv/bin/python -m services.cli status      # source sync status
-.venv/bin/python -m services.cli evaluate    # score the evaluation question set
-.venv/bin/pytest                             # offline test suite
-```
+Made with ❤️ by [aselvicta](https://github.com/aselvicta) for Tanzania's national parks and everyone on their way to see them.
 
-The main endpoint is `POST /v1/ask`, with a streaming version at `POST /v1/ask/stream`. For the full API, see the [SafariAI README](SAFARI-AI/README.md#api).
-
-## Configuration
-
-Settings go in `SAFARI-AI/.env`. Every variable is listed in [`.env.example`](SAFARI-AI/.env.example).
-
-| Variable | Purpose | Default |
-|---|---|---|
-| `DEEPSEEK_API_KEY` | Enables the LLM agent | empty (deterministic mode) |
-| `SAFARI_STORE` | `memory` or `postgres` | `memory` |
-| `SAFARI_REFRESH_HOURS` | How often the server re-syncs the TANAPA API | `12` |
-| `SAFARI_TZS_PER_USD` | Rate for the approximate USD figures | `2555` |
-| `SAFARI_ADMIN_TOKEN` | Protects admin endpoints | empty (localhost only) |
-
-## Repository layout
-
-```text
-SAFARI-AI/
-├── apps/api         FastAPI server, streaming, scheduled refresh
-├── apps/web         React visitor app and admin view
-├── services/        Sources, knowledge, agent, retrieval, planning, evaluation
-├── knowledge/       Park catalog, source registry, official PDFs
-├── evaluation/      Evaluation question set
-├── tests/           Offline tests with an API snapshot fixture
-├── docs/            Architecture, design decisions, pipeline notes
-└── infrastructure/  Dockerfile, Postgres init script
-```
-
-Official source documents (PDFs and the saved TANAPA publications page) are in `SAFARI-AI/knowledge/documents/`.
-
-## Documentation
-
-- [SafariAI README](SAFARI-AI/README.md): sources, answering rules, full API
-- [Architecture overview](SAFARI-AI/docs/architecture/overview.md)
-- [Hybrid retrieval](SAFARI-AI/docs/retrieval/hybrid.md)
-- [Ingestion pipeline](SAFARI-AI/docs/ingestion/pipeline.md)
-- Decisions: [Postgres and memory store](SAFARI-AI/docs/decisions/001-postgres-and-memory.md), [authority, freshness and abstaining](SAFARI-AI/docs/decisions/002-authority-freshness-abstain.md)
-
-## Data sources
-
-Data comes from the Tanzania National Parks Authority (TANAPA) website API and publications, and from Tanzania Immigration. Fees and rules change, so confirm with the official authority before you travel. Ngorongoro (NCAA), game reserves (TAWA) and Zanzibar are outside TANAPA, and the assistant refers those questions to the authority responsible for them.
+</div>

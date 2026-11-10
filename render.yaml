@@ -1,0 +1,52 @@
+# Render Blueprint: the SafariAI API on Render's free plan.
+# The database is Supabase (DATABASE_URL), and the frontend is Cloudflare Pages; see "Deploy" in SAFARI-AI/README.md.
+# Dashboard → New → Blueprint → pick this repo. Render asks for the `sync: false` values on first apply.
+#
+# The free plan has no disk, so everything that must last (fees, parks, documents, question log,
+# feedback, harvest runs, evaluation results) is kept in the database. Files under /data are scratch.
+
+services:
+  - type: web
+    name: safari-ai-api
+    runtime: docker
+    dockerfilePath: ./SAFARI-AI/backend/Dockerfile
+    dockerContext: ./SAFARI-AI/backend
+    # Same region as the Supabase project (eu-central-1, Frankfurt).
+    region: frankfurt
+    plan: free
+    healthCheckPath: /v1/health
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - SAFARI-AI/backend/**
+    envVars:
+      # Supabase session pooler URI (IPv4, port 5432), ending in ?sslmode=require.
+      - key: DATABASE_URL
+        sync: false
+      - key: SAFARI_STORE
+        value: postgres
+      - key: SAFARI_DATA_DIR
+        value: /data
+      - key: PORT
+        value: "8000"
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com
+      - key: DEEPSEEK_MODEL
+        value: deepseek-chat
+      - key: SAFARI_ADMIN_USERNAME
+        sync: false
+      - key: SAFARI_ADMIN_PASSWORD
+        sync: false
+      - key: SAFARI_ADMIN_SESSION_HOURS
+        value: "12"
+      - key: SAFARI_SECRET_KEY
+        generateValue: true
+      # The same value goes into the Cloudflare Pages secret PROXY_SECRET.
+      - key: SAFARI_PROXY_SECRET
+        sync: false
+      - key: SAFARI_REFRESH_HOURS
+        value: "12"
+      - key: SAFARI_TZS_PER_USD
+        value: "2555"

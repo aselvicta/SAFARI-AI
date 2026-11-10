@@ -6,11 +6,13 @@
 
 A helper for anyone planning a visit to Tanzania's national parks.
 
+**[Try it live at safari-ai.pages.dev](https://safari-ai.pages.dev/)**
+
 </div>
 
 You ask a question, like *"How much is it to enter Serengeti?"* or *"Where can I see chimpanzees?"*, and SafariAI answers in English or Kiswahili. Every answer shows where its information came from, so you can check it yourself.
 
-![The SafariAI home page](SAFARI-AI/docs/screenshots/visitor-desk.jpg)
+[![The SafariAI home page](SAFARI-AI/docs/screenshots/visitor-desk.jpg)](https://safari-ai.pages.dev/)
 
 ## What it helps with
 

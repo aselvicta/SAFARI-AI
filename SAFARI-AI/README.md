@@ -1,186 +1,96 @@
-# SafariAI Tanzania: technical reference
+# SafariAI technical guide
 
-This is the developer reference: setup, deployment, the admin dashboard, sources, answering rules and the API. For what SafariAI is and why it exists, start with the [project overview](../README.md).
+This guide is for developers who want to run, change or deploy SafariAI. If you just want to know what the project is, read the [main README](../README.md) first.
 
-A visitor agent for Tanzania's 21 national parks. It answers from official sources: live TANAPA fees for the travel date, park pages, activities, accommodation, contacts, and the immigration visa list. Every fact carries a citation, and it says so plainly when the sources don't cover a question.
+The project has two parts. `backend/` is the Python server that answers questions, and `frontend/` is the website, including the admin dashboard.
 
-## Run
+## What you need
 
-The project has two parts: `backend/` (Python API and agent) and `frontend/` (React app with the visitor desk and admin dashboard).
+- Python 3.11 or newer
+- Node.js 20 or newer
+- A DeepSeek API key, if you want the AI model to write the answers. Without one, SafariAI still works and answers from fixed templates.
+
+## Running it on your computer
+
+Start the backend:
 
 ```bash
-# Backend
 cd backend
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
-cp .env.example .env                       # add DEEPSEEK_API_KEY for the LLM agent
-.venv/bin/python -m services.cli harvest   # TANAPA API + publications + official pages (~1 min)
-.venv/bin/uvicorn api.main:app --reload    # http://127.0.0.1:8000
+cp .env.example .env                       # put your DEEPSEEK_API_KEY in this file
+.venv/bin/python -m services.cli harvest   # downloads the official TANAPA data, takes about a minute
+.venv/bin/uvicorn api.main:app --reload
+```
 
-# Frontend, in a second terminal
+Then start the website in a second terminal:
+
+```bash
 cd frontend
 npm install
-npm run dev                                # http://127.0.0.1:5173, proxies /v1 to the backend
+npm run dev
 ```
 
-Open http://127.0.0.1:5173. The admin dashboard is at `/admin`. `/?q=Serengeti%20entry%20fees` opens with a question already asked.
+Open http://127.0.0.1:5173 to use it. The admin dashboard is at http://127.0.0.1:5173/admin.
 
-To run one process instead, run `npm run build` in `frontend/`. The backend then serves `frontend/dist` at http://127.0.0.1:8000. Set `SAFARI_WEB_DIST` to serve a build from somewhere else.
+## Running it with Docker
 
-### Docker
+If you have Docker, this starts the database, the backend and the website together:
 
 ```bash
-cp backend/.env.example backend/.env     # set DEEPSEEK_API_KEY, SAFARI_ADMIN_USERNAME and SAFARI_ADMIN_PASSWORD
-docker compose up -d --build             # PostgreSQL, backend :8000, frontend (nginx) :8080
-docker compose exec api python -m services.cli harvest   # first run only: publications and pages
+cp backend/.env.example backend/.env       # set DEEPSEEK_API_KEY, SAFARI_ADMIN_USERNAME and SAFARI_ADMIN_PASSWORD
+docker compose up -d --build
+docker compose exec api python -m services.cli harvest   # only needed the first time
 ```
 
-Open http://127.0.0.1:8080, and sign in at http://127.0.0.1:8080/admin with the username and password from `backend/.env`. In Docker the admin requests reach the API from the nginx container rather than localhost, so admin needs those credentials set. On its first start the API syncs fees and parks from the TANAPA API by itself. Data lives in the `safari_pg` and `safari_data` volumes, so it survives restarts. Run `docker compose down` to stop; adding `-v` also deletes the data.
+The site is then at http://127.0.0.1:8080. Stop it with `docker compose down`.
 
-From `backend/`:
+## Settings
+
+All settings live in `backend/.env`. The ones you will most likely change:
+
+| Setting | What it does |
+|---|---|
+| `DEEPSEEK_API_KEY` | Turns on the AI model. Leave it empty to use templates only. |
+| `SAFARI_ADMIN_USERNAME`, `SAFARI_ADMIN_PASSWORD` | The login for `/admin`. Set these before putting the site online. |
+| `SAFARI_STORE` | `memory` keeps data in a local file, `postgres` uses a database (needs `DATABASE_URL`). |
+| `SAFARI_REFRESH_HOURS` | How often fees and park data are fetched again from TANAPA. The default is 12. |
+| `SAFARI_TZS_PER_USD` | The exchange rate used for the rough USD amounts shown next to TZS prices. |
+
+The full list, with notes, is in [`backend/.env.example`](backend/.env.example).
+
+## Useful commands
+
+Run these from `backend/`:
 
 ```bash
-.venv/bin/python -m services.cli ask "Plan 3 days in Tarangire" --passport Germany --adults 2 --child-ages 7,3
-.venv/bin/python -m services.cli ask "Can I see elephants in Mikumi?" --no-llm
-.venv/bin/python -m services.cli harvest --api-only   # fees and parks only (~2 s)
-.venv/bin/python -m services.cli status
-.venv/bin/python -m services.cli evaluate
-.venv/bin/pytest
-# Postgres store tests too, against a scratch pgvector database:
-SAFARI_TEST_DATABASE_URL=postgresql://postgres:x@127.0.0.1:55432/postgres .venv/bin/pytest tests/test_postgres_store.py
+.venv/bin/python -m services.cli ask "Plan 3 days in Tarangire" --passport Germany --adults 2
+.venv/bin/python -m services.cli status      # when each source was last updated
+.venv/bin/python -m services.cli evaluate    # score the answers against a set of test questions
+.venv/bin/pytest                             # run the tests
 ```
 
-While it runs, the server refreshes the TANAPA API data every `SAFARI_REFRESH_HOURS` (default 12).
+## Putting it online
 
-## Deploy (Cloudflare Pages + Supabase + Render free)
+SafariAI runs on three free services. The website is on Cloudflare Pages, the backend on Render, and the database on Supabase.
 
-Everything here runs on free plans:
+1. **Supabase.** Create a project in the Frankfurt region and keep the database password somewhere safe. Click **Connect**, copy the **Session pooler** connection string, add `?sslmode=require` to the end, and keep it for the next step. The other connection strings don't work from Render.
+2. **Render.** Choose **New → Blueprint** and pick this repository. It reads `render.yaml` and sets up the backend. Paste in the Supabase connection string as `DATABASE_URL`, your DeepSeek key, an admin username and password, and a long random `SAFARI_PROXY_SECRET`. When it's live, `https://your-service.onrender.com/v1/health` should answer.
+3. **Cloudflare Pages.** Choose **Workers & Pages → Create → Pages → Connect to Git** and pick this repository. Set the root directory to `SAFARI-AI/frontend`, the build command to `npm run build` and the output directory to `dist`. Add three variables: `API_ORIGIN` (your Render address), `PROXY_SECRET` (the same value as on Render) and `NODE_VERSION` set to `22`.
+4. **First run.** Open `/admin` on your new site, sign in, and run **Sources & sync → Full harvest** once to load the TANAPA publications.
 
-- **Cloudflare Pages** hosts the frontend. A Pages Function (`frontend/functions/v1/[[path]].js`) forwards `/v1/*` to the API, so the browser talks to one origin and needs no CORS setup.
-- **Supabase** hosts PostgreSQL with pgvector.
-- **Render's free web plan** runs the Python API. Supabase can't host it (its functions run Deno), and Cloudflare Containers need a paid plan.
+Render's free plan goes to sleep after 15 minutes without visitors, and the first visit afterwards is slow. A free uptime monitor such as UptimeRobot, checking `/v1/health` every 5 minutes, keeps it awake.
 
-The API creates its schema on start. When `SAFARI_STORE=postgres`, it also keeps the question log, feedback, reviews, harvest runs and evaluation results in the database, so nothing is lost on a host without a disk.
+After that, every push to `main` updates the site.
 
-**1. Supabase.** Create a project in region `eu-central-1` and save its database password. Under **Connect**, copy the **Session pooler** URI (IPv4, port 5432), add `?sslmode=require`, and use it as `DATABASE_URL`. Render has no IPv6, so the direct connection doesn't work there. The transaction pooler (port 6543) breaks psycopg's prepared statements.
+## The admin dashboard
 
-**2. Render.** Go to **New → Blueprint** and pick the repo. `render.yaml` (at the repository root) creates the `safari-ai-api` Docker service on the free plan. Render asks for `DATABASE_URL`, `DEEPSEEK_API_KEY`, `SAFARI_ADMIN_USERNAME`, `SAFARI_ADMIN_PASSWORD` and `SAFARI_PROXY_SECRET` (any long random string, such as `openssl rand -hex 32`), and generates `SAFARI_SECRET_KEY`. When the deploy is live, `https://<service>.onrender.com/v1/health` answers, and the TANAPA fees and parks sync on their own within a minute.
+`/admin` is for the people looking after the site. It shows how many questions come in, how well they are answered, which parks and topics people ask about, and when they ask. It also lists questions the official sources couldn't answer, so you know what information is missing. From there you can read visitor feedback, check fees and park data, add or remove documents, and refresh the data from TANAPA.
 
-The free plan sleeps after 15 minutes without traffic, and the next request then takes about a minute. A free uptime monitor that calls `/v1/health` every 5 minutes keeps it awake. That stays within the 750 free hours a month and also keeps Supabase from pausing the project for inactivity.
+## Adding documents
 
-**3. Cloudflare Pages.** Go to **Workers & Pages → Create → Pages → Connect to Git** and choose the repo. Use these settings:
+You can add official PDFs or text files from the **Documents** page in the admin dashboard, or from the command line as explained in [`backend/knowledge/documents/README.md`](backend/knowledge/documents/README.md).
 
-| Setting | Value |
-|---|---|
-| Root directory | `SAFARI-AI/frontend` |
-| Build command | `npm run build` |
-| Build output directory | `dist` |
-| Variables | `API_ORIGIN` = `https://<service>.onrender.com`, `PROXY_SECRET` = the same value as `SAFARI_PROXY_SECRET` on Render, `NODE_VERSION` = `22` |
+## More detail
 
-Encrypt `PROXY_SECRET` as a secret. Once the site is deployed, open `/admin`, sign in, and run **Sources & sync → full harvest** once to index the publications and pages. To use your own domain, go to **Custom domains** on the Pages project.
-
-With `SAFARI_PROXY_SECRET` set, the API refuses `/v1` requests that don't come through the Pages Function (except `/v1/health`), which keeps the visitor IP used for rate limits trustworthy. Pushes to `main` redeploy both sides. Render rebuilds only when `SAFARI-AI/backend/` changes. `frontend/public/_headers` sets security headers and long caching for hashed assets.
-
-To test the function locally: `npm run build && npx wrangler pages dev dist --binding API_ORIGIN=http://127.0.0.1:8000` in `frontend/`.
-
-## Admin dashboard
-
-`/admin` is for the people who run the desk.
-
-| Section | What it shows and does |
-|---|---|
-| Overview | Alerts that need action (failed or stale sources, expiring tariffs, unindexed PDFs, incomplete parks, falling answer rate, unreviewed negative ratings). Headline KPIs with change against the previous period. Questions per day, top parks and topics, data totals, source health |
-| Insights | Sessions per day, knowledge gaps (declined or low-confidence questions, grouped), parks asked about against parks recommended, source markets by passport, fee class, language, trip length, group size, hour of day (EAT), wildlife, out-of-remit questions, confidence, agent tool use, response-time percentiles |
-| Questions | The full question log with search and filters for intent, park and outcome, per-question detail, CSV export |
-| Feedback | Visitor thumbs up and down with the answer they saw. Mark each one reviewed, resolved or dismissed, with a note |
-| Parks | All 21 parks with data from tanzaniaparks.go.tz: photo, circuit, area, non-resident entrance fee in force, fee row counts, profile completeness |
-| Fees & tariffs | Tariff validity windows and days left, plus a browser over every fee row filtered by park, category, visitor class and validity |
-| Documents | Index breakdown by type, publisher and authority. Scanned PDFs that need OCR. Upload, search and remove documents |
-| Sources & sync | Per-source status and errors, a quick API sync or a full harvest, and the history of scheduled and manual runs |
-| System & quality | Runs the evaluation question set and shows per-question results. Configuration, uptime, data files |
-
-The period selector (today, 7, 30, 90 or 365 days) scopes the Monitor sections. Every ask is logged (to `.data/events.jsonl`, or the `app_log` table with the Postgres store) with its intent, parks, outcome, latency and trip details. Session ids are hashed, and IP addresses are never stored. Set `SAFARI_ADMIN_USERNAME` and `SAFARI_ADMIN_PASSWORD` before exposing the server; the dashboard then asks admins to sign in. The visitor desk has no admin link; it appears in the header only for a signed-in admin.
-
-## Sources
-
-| Source | How | Gives |
-|---|---|---|
-| TANAPA website API (`tanzaniaparks.go.tz/api`) | JSON, paginated | 2,600+ fee rows with validity dates, 21 park pages with photos, 29 activities, accommodation types, park contacts, fee notes and FAQ |
-| TANAPA publications | PDF | Regulations, guidelines, acts, the English and Kiswahili brochures |
-| TANAPA GIS map (2024) | curated in `knowledge/metadata/parks.json` | Area, year established, gazette notice |
-| Tanzania Immigration | PDF on file | Visa rule and fee by passport |
-| TANAPA plan-a-trip, TAWA, NCAA | HTML, boilerplate stripped | Seasons, rules, scope pointers |
-
-Raw API snapshots are saved to `.data/raw/` for audit. Every source's last sync, record counts and errors appear at `/v1/status` and in the admin view. If a source fails, its previous data stays in place.
-
-A redirect to another domain is rejected. At the time of writing, `ncaa.go.tz` sends non-browser clients to an unrelated site. Scanned PDFs with no text layer are listed as `needs_ocr` instead of being indexed empty.
-
-## How an answer is made
-
-```text
-question + trip details
-  -> understand (intent, language, parks, animal, fee category)
-  -> agent: DeepSeek with tools                  | composer: same tools, no LLM
-       get_fees, estimate_trip_cost, get_park,    |   (used when no key is set, the
-       recommend_parks, check_visa,               |    LLM fails, or a draft fails
-       search_knowledge                           |    the grounding check)
-  -> grounding check: every number in the answer must appear in a tool result
-  -> answer (markdown, [n] citations) + UI blocks (fee table, estimate, park cards, visa)
-```
-
-Answering rules:
-
-- A fee is quoted only from an official row whose validity window covers the travel date. Amounts are official TZS figures; the USD figure is approximate, at `SAFARI_TZS_PER_USD` (TANAPA prices at 2,555).
-- Totals come from `estimate_trip_cost`, never from model arithmetic. Children under 5 enter free; ages 5–15 pay the child rate.
-- Fee class follows the passport: East African Community (R), expatriate/permit holder (EX), non-resident (NR).
-- Ngorongoro (NCAA), game reserves (TAWA) and Zanzibar are pointed to their own authority.
-- English and Kiswahili.
-
-Retrieval is BM25 plus hashed vectors over a cached index, reranked by intent, authority and freshness. See `docs/retrieval/hybrid.md`.
-
-## API
-
-| Endpoint | |
-|---|---|
-| `POST /v1/ask` | `{question, session_id, as_of?, language?, profile}` → answer, citations, blocks, follow-ups |
-| `POST /v1/ask/stream` | Same, as Server-Sent Events: `status`, `delta`, `reset`, `final`, `error` |
-| `GET /v1/parks`, `GET /v1/parks/{slug}` | Park cards, and one park with its fee table |
-| `GET /v1/fees?park=&category=&as_of=` | Fee rows in force |
-| `POST /v1/briefing[?download=true]` | Trip briefing as JSON or a PDF |
-| `GET /v1/status` | Source sync status, counts, LLM on or off |
-| `POST /v1/feedback` | Thumbs up or down, appended to `.data/feedback.jsonl` |
-| `GET /v1/admin/overview?days=` | KPIs, daily series, breakdowns, knowledge gaps, alerts |
-| `GET /v1/admin/questions[.csv]?q=&intent=&park=&outcome=` | Question log, or the CSV export |
-| `GET /v1/admin/feedback`, `POST /v1/admin/feedback/{id}` | Feedback list and its review state |
-| `GET /v1/admin/inventory`, `GET /v1/admin/fees` | Park, tariff and document inventory; filtered fee rows |
-| `GET /v1/admin/documents`, `DELETE /v1/admin/documents/{id}`, `POST /v1/documents` | Manage the index |
-| `POST /v1/admin/harvest[?full=true]`, `GET /v1/admin/harvests` | Sync sources; sync history |
-| `POST /v1/evaluate`, `GET /v1/admin/evaluation`, `GET /v1/admin/system` | Quality check, configuration and data files |
-
-`POST /v1/admin/login` takes `{username, password}` and returns a session token. Every other `/v1/admin/*` endpoint, plus `POST /v1/documents` and `POST /v1/evaluate`, needs that session token, or `SAFARI_ADMIN_TOKEN`, in `X-Admin-Token`. With neither credentials nor a token set, only localhost may call them.
-
-`/v1/ask` is rate-limited to 30 questions per minute per client.
-
-## Layout
-
-```text
-backend/
-  api/              FastAPI app (main.py), admin router (admin.py), admin auth (security.py)
-  services/sources  Connectors: TANAPA API, PDFs, pages, harvest orchestration
-  services/knowledge  Fee lookup and estimates, park cards, visa rules
-  services/agent    Tools, LLM loop, grounding check, deterministic composer, prompts
-  services/analytics  Question and feedback logs, dashboard insights, inventory, alerts
-  services/retrieval, ranking, conversation, ingestion, planning (PDF briefing), evaluation
-  knowledge/        Park catalog (GIS map), source registry, official PDFs
-  evaluation/       Questions scored by `services.cli evaluate` and the dashboard quality check
-  tests/            Offline tests against tests/fixtures/tanapa_api_snapshot.json
-  postgres/         Schema for the PostgreSQL store
-  assets/brand/     Logos used in the PDF briefing
-frontend/
-  src/              Visitor desk: hero, chat, answer cards, trip panel, park explorer
-  src/admin/        Admin dashboard, loaded only on /admin
-  nginx.conf        Static app + /v1 proxy for the Docker image
-docs/               Architecture, decisions, v2 plan, design reference
-```
-
-`SAFARI_STORE=memory` keeps the index in `backend/.data/knowledge.json`. `SAFARI_STORE=postgres` uses PostgreSQL with pgvector (`docker compose up`).
+[How it works](docs/how-it-works.md) explains how a question becomes an answer, how search works, and the rules SafariAI follows to stay accurate.

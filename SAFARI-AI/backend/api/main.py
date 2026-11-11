@@ -293,7 +293,8 @@ def _counts() -> dict:
     return views.get(("counts", store.version), build)
 
 
-@app.get("/v1/health")
+# HEAD too: uptime monitors such as UptimeRobot check with HEAD requests by default.
+@app.api_route("/v1/health", methods=["GET", "HEAD"])
 def health() -> dict:
     counts = _counts()
     return {"status": "ok", "documents": counts["documents"], "parks": counts["parks"], "store": app.state.assistant.settings.store}

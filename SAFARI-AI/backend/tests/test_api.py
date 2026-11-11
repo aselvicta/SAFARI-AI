@@ -137,3 +137,11 @@ def test_briefing_pdf_lists_live_fees(monkeypatch):
         assert "178,850" in text
         assert "Nairobi" in text
         assert "Total" in text
+
+
+def test_health_answers_uptime_monitors(monkeypatch):
+    with _client(monkeypatch) as client:
+        assert client.get("/v1/health").json()["status"] == "ok"
+        head = client.head("/v1/health")
+        assert head.status_code == 200 and head.content == b""
+        assert client.get("/v1/.env").status_code == 404  # secrets files are never served

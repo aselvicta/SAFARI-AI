@@ -15,6 +15,9 @@ from services.conversation.understand import UnderstoodQuery, understand
 from services.knowledge import parks as park_knowledge
 from services.knowledge import tariffs
 from services.knowledge.visa import visa_block
+from services.logistics.budget import STAY, TRANSPORT, TripRequest
+from services.logistics.fx import fee_usd
+from services.logistics.places import find_origin, origin_names
 from services.retrieval.index import HybridIndex
 from services.retrieval.planner import shortlist
 from services.sources.tanapa_api import TARIFF_PAGE, VISITOR_LABELS, match_park
@@ -92,6 +95,44 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "plan_trip_budget",
+            "description": "Full trip budget from a Tanzanian town to one park: road distance, fuel at EWURA cap prices or LATRA bus fares, official park entry and vehicle fees, live hotel rates near the gate for the travel date (or official campsite fees), today's Bank of Tanzania exchange rate, a 10% buffer, and what is not included. Use for any 'how much will the trip cost' question that has a starting town.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "park": {"type": "string"},
+                    "origin": {"type": "string", "description": "Town the visitor starts from, e.g. Dar es Salaam, Mwanza, Mbeya"},
+                    "days": {"type": "integer", "minimum": 1},
+                    "adults": {"type": "integer", "minimum": 1},
+                    "child_ages": {"type": "array", "items": {"type": "integer"}},
+                    "visitor": {"type": "string", "enum": ["non_resident", "expatriate", "eac_citizen"]},
+                    "transport": {"type": "string", "enum": list(TRANSPORT), "description": "self_drive (own or hired car, default) or bus"},
+                    "stay": {"type": "string", "enum": list(STAY), "description": "hotel (default), camping (park public campsite) or none"},
+                    "currency": {"type": "string", "description": "Optional extra currency code for the total, e.g. EUR, GBP, KES"},
+                },
+                "required": ["park", "origin", "days", "adults"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "convert_currency",
+            "description": "Convert an amount between TZS and another currency (USD, EUR, GBP, KES and 30 more) at today's Bank of Tanzania rate.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "amount": {"type": "number"},
+                    "from_currency": {"type": "string"},
+                    "to_currency": {"type": "string"},
+                },
+                "required": ["amount", "from_currency", "to_currency"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_knowledge",
             "description": "Search official documents (TANAPA park pages, activities and their FAQs, fee notes, plan-a-trip seasons and rules, guidelines, regulations, brochures, immigration guideline, NCAA/TAWA pages). Use for seasons, rules, safety, activities, wildlife and anything not covered by the other tools.",
             "parameters": {
@@ -105,7 +146,8 @@ TOOL_SCHEMAS = [
 
 
 class Toolbox:
-    def __init__(self, store, index: HybridIndex, settings: Settings, as_of: date, profile: dict | None = None) -> None:
+    def __init__(self, store, index: HybridIndex, settings: Settings, as_of: date, profile: dict | None = None, logistics=None) -> None:
+        self.logistics = logistics
         self.store = store
         self.index = index
         self.settings = settings
@@ -161,7 +203,7 @@ class Toolbox:
                 "cite": self._cite_tariff(name),
             }
         self.structured_hit = True
-        block = tariffs.fee_block(self.store, slug, name, self.as_of, self.settings.tzs_per_usd, categories=(chosen,), visitors=visitors)
+        block = tariffs.fee_block(self.store, slug, name, self.as_of, self.settings.tzs_per_usd, categories=(chosen,), visitors=visitors, fx=self._fx)
         if block:
             if keyword:
                 block["rows"] = [row for row in block["rows"] if keyword.lower() in row["item"].lower()] or block["rows"]
@@ -172,7 +214,7 @@ class Toolbox:
             "park": name,
             "category": chosen,
             "travel_date": self.as_of.isoformat(),
-            "currency_note": f"Official amounts are TZS. USD is approximate at {self.settings.tzs_per_usd:g} TZS per USD.",
+            "currency_note": self._currency_note(),
             "rows": [
                 {
                     "item": row["item"],
@@ -180,7 +222,7 @@ class Toolbox:
                     "season": row["season_label"],
                     "valid": f"{row['valid_from']} to {row['valid_until']}",
                     "tzs": row["amount"],
-                    "usd_approx": round(row["amount"] / self.settings.tzs_per_usd, 2),
+                    "usd": fee_usd(row["amount"], row["visitor"], self._fx, self.settings.tzs_per_usd)[0],
                     **({"unit": row["unit"]} if row.get("unit") else {}),
                 }
                 for row in rows[:40]
@@ -195,7 +237,7 @@ class Toolbox:
             return {"error": f"'{park}' is not a TANAPA national park in the index"}
         chosen, reason = (visitor, "given") if visitor in tariffs.PERSON_VISITORS else tariffs.visitor_class(self.profile)
         ages = [int(age) for age in (child_ages or []) if str(age).lstrip("-").isdigit()]
-        block = tariffs.estimate(self.store, slug, name, self.as_of, self.settings.tzs_per_usd, days=int(days), adults=int(adults), child_ages=ages, visitor=chosen)
+        block = tariffs.estimate(self.store, slug, name, self.as_of, self.settings.tzs_per_usd, days=int(days), adults=int(adults), child_ages=ages, visitor=chosen, fx=self._fx)
         if block is None:
             return {"error": f"No entrance fee in force on {self.as_of.isoformat()} for {name} ({VISITOR_LABELS[chosen]})."}
         self.structured_hit = True
@@ -208,7 +250,8 @@ class Toolbox:
             "days": block["days"],
             "lines": block["lines"],
             "total_tzs": block["total_tzs"],
-            "total_usd_approx": block["total_usd"],
+            "total_usd": block["total_usd"],
+            "currency_note": self._currency_note(),
             "excludes": block["excludes"],
             "cite": cite,
         }
@@ -315,6 +358,79 @@ class Toolbox:
             "cite": cite,
         }
 
+    def tool_plan_trip_budget(self, park: str, origin: str, days: int, adults: int, child_ages: list | None = None, visitor: str | None = None, transport: str = "self_drive", stay: str = "hotel", currency: str | None = None) -> dict:
+        if self.logistics is None:
+            return {"error": "Trip budgets are not available on this server"}
+        slug, name = self._park(park)
+        if slug is None:
+            return {"error": f"'{park}' is not a TANAPA national park in the index", "parks": self._park_names()}
+        if find_origin(origin) is None:
+            return {"error": f"'{origin}' is not a town I can route from yet. Ask which of these is closest.", "known_towns": origin_names()}
+        chosen, reason = (visitor, "given") if visitor in tariffs.PERSON_VISITORS else tariffs.visitor_class(self.profile)
+        ages = [int(age) for age in (child_ages or []) if str(age).lstrip("-").isdigit()]
+        block = self.logistics.budget(
+            TripRequest(
+                park_slug=slug, park_name=name, origin=origin, travel_date=self.as_of, days=int(days), adults=max(1, int(adults)),
+                child_ages=ages, visitor=chosen,
+                transport=transport if transport in TRANSPORT else "self_drive",
+                stay=stay if stay in STAY else "hotel",
+                currency=currency,
+            )
+        )
+        if block.get("error"):
+            return block
+        self.structured_hit = True
+        self._add_block(block)
+        cites = {source["key"]: self._cite_source(source) for source in block["sources"]}
+        return {
+            "park": name,
+            "from": block["origin"],
+            "to": f"{block['arrival']['name']} ({block['arrival']['label']})",
+            "road_km_one_way": block["route"]["km"],
+            "driving_hours_one_way": block["route"]["hours"],
+            "visitor_class": tariffs.VISITOR_LABELS[chosen],
+            "visitor_class_reason": reason,
+            "lines": [
+                {"group": line["group"], "item": line["label"], "how": line["detail"], "tzs": line["total_tzs"], "usd": line["usd"], "cite": cites.get(line["source"])}
+                for line in block["lines"]
+            ],
+            "subtotals_tzs": block["groups"],
+            "buffer_tzs": block["buffer_tzs"],
+            "total_tzs": block["total_tzs"],
+            "total_usd": block["total_usd"],
+            "per_person_tzs": block["per_person_tzs"],
+            **({"total_in_" + block["currency"]["code"]: block["currency"]["total"]} if block.get("currency") else {}),
+            "exchange_rate": f"1 USD = {block['fx']['usd']:,.2f} TZS ({block['fx']['source']}, {block['fx']['date']})",
+            "exchange_rate_cite": cites.get("fx"),
+            "cheapest_hotels": [
+                {"name": item["name"], "usd_per_night": item.get("usd_per_night"), "km_from_arrival": item.get("km"), "rating": item.get("rating")}
+                for item in block["hotels"][:3]
+            ],
+            "not_included": block["excluded"],
+            "notes": block["notes"],
+        }
+
+    def tool_convert_currency(self, amount: float, from_currency: str, to_currency: str) -> dict:
+        if self._fx is None:
+            return {"error": "Live exchange rates are not available on this server"}
+        try:
+            value = float(amount)
+        except (TypeError, ValueError):
+            return {"error": "amount must be a number"}
+        result = self._fx.convert(value, from_currency, to_currency)
+        if result.get("error"):
+            return result
+        self.structured_hit = True
+        result["cite"] = self._cite(
+            document_id="bot_fx_live",
+            title=f"Bank of Tanzania exchange rates ({result['rate_date']})",
+            organization="Bank of Tanzania",
+            source_url=result["source_url"],
+            excerpt=f"{value:g} {result['from']} = {result['result']:,.2f} {result['to']}",
+            kind="api",
+        )
+        return result
+
     def tool_search_knowledge(self, query: str, park: str | None = None) -> dict:
         slug = self._park(park)[0] if park else None
         understood = understand(query, self.store.list_parks())
@@ -354,6 +470,29 @@ class Toolbox:
         return {"passages": passages} if passages else {"passages": [], "note": "No official passage matched."}
 
     # Helpers ------------------------------------------------------------
+
+    @property
+    def _fx(self):
+        return self.logistics.fx if self.logistics is not None else None
+
+    def _currency_note(self) -> str:
+        base = f"Official amounts are TZS. Non-resident and expatriate fees are priced in USD by TANAPA at {self.settings.tzs_per_usd:g} TZS per USD, so their USD is exact."
+        if self._fx is None:
+            return base
+        meta = self._fx.meta()
+        return f"{base} Other amounts convert at 1 USD = {meta['usd']:,.2f} TZS ({meta['source']}, {meta['date']})."
+
+    def _cite_source(self, source: dict) -> int:
+        organization = {"tanapa": "TANAPA", "fuel": "EWURA", "latra": "LATRA", "fx": "Bank of Tanzania", "hotels": "Xotelo", "route": "OpenStreetMap"}.get(source["key"], "")
+        return self._cite(
+            document_id=f"logistics_{source['key']}",
+            title=source["title"],
+            organization=organization,
+            source_url=source["url"],
+            excerpt=source["title"] + (f" (as of {source['as_of']})" if source.get("as_of") else ""),
+            kind="api",
+            authority="official" if source["key"] in {"tanapa", "fuel", "latra", "fx"} else "live",
+        )
 
     def _park(self, text: str | None) -> tuple[str | None, str | None]:
         if not text:

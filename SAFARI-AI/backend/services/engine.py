@@ -20,6 +20,7 @@ from services.common.store import JsonStore
 from services.conversation.memory import SessionMemory
 from services.conversation.understand import understand
 from services.generation.llm import LLMError
+from services.logistics.budget import Logistics
 from services.retrieval.index import HybridIndex
 
 log = logging.getLogger("safari.engine")
@@ -39,6 +40,7 @@ class Assistant:
         self.settings = settings or load_settings()
         self.index = HybridIndex(store, self.embedder, self.weights)
         self.memory = SessionMemory()
+        self.logistics = Logistics(store, self.settings.data_dir, self.settings.tzs_per_usd)
 
     def ask(
         self,
@@ -63,7 +65,7 @@ class Assistant:
         query = understand(question, self.store.list_parks(), profile=profile, history=history)
         if language in {"en", "sw"} and query.language == "en" and language == "sw":
             query.language = "sw"
-        tools = Toolbox(self.store, self.index, self.settings, question_date, profile)
+        tools = Toolbox(self.store, self.index, self.settings, question_date, profile, logistics=self.logistics)
         llm = self.settings.llm_enabled if use_llm is None else use_llm
         generator = "composer"
         answer = None
@@ -83,7 +85,7 @@ class Assistant:
                 log.warning("agent draft failed the grounding check (%s): %s", exc.kind, exc)
             if answer is None:
                 emit("reset", {})
-                tools = Toolbox(self.store, self.index, self.settings, question_date, profile)
+                tools = Toolbox(self.store, self.index, self.settings, question_date, profile, logistics=self.logistics)
         if answer is None:
             emit("status", {"label": "Checking official sources"})
             composed = compose(query, tools)

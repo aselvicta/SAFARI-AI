@@ -29,6 +29,22 @@ def _offline(tmp_path, monkeypatch):
     monkeypatch.setenv("SAFARI_REFRESH_HOURS", "0")
     for name in ("DEEPSEEK_API_KEY", "SAFARI_LLM_API_KEY", "SAFARI_ADMIN_TOKEN"):
         monkeypatch.delenv(name, raising=False)
+    # No live services in tests: a fixed exchange rate, straight-line routes, no hotel rates.
+    from services.logistics import fx, hotels, routing
+
+    monkeypatch.setattr(fx.LiveFx, "_fetch", lambda self: dict(FX_SNAPSHOT))
+    monkeypatch.setattr(routing.Router, "_osrm", lambda self, *args: None)
+    monkeypatch.setattr(hotels.RateCache, "_one", lambda self, hotel, check_in, check_out: None)
+
+
+FX_SNAPSHOT = {
+    "date": "2026-11-11",
+    "rates": {"USD": 2643.5182, "EUR": 2940.6496, "GBP": 3517.7296, "KES": 20.3191},
+    "source": "Bank of Tanzania indicative rates (mean of buying and selling)",
+    "source_url": "https://www.bot.go.tz/ExchangeRate/excRates",
+    "live": True,
+    "fetched_at": "2026-11-11T17:34:09Z",
+}
 
 
 def build_assistant(with_api: bool = True) -> Assistant:

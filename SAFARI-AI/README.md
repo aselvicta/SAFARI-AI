@@ -55,7 +55,7 @@ All settings live in `backend/.env`. The ones you will most likely change:
 | `SAFARI_ADMIN_USERNAME`, `SAFARI_ADMIN_PASSWORD` | The login for `/admin`. Set these before putting the site online. |
 | `SAFARI_STORE` | `memory` keeps data in a local file, `postgres` uses a database (needs `DATABASE_URL`). |
 | `SAFARI_REFRESH_HOURS` | How often fees and park data are fetched again from TANAPA. The default is 12. |
-| `SAFARI_TZS_PER_USD` | The exchange rate used for the rough USD amounts shown next to TZS prices. |
+| `SAFARI_TZS_PER_USD` | TANAPA's own billing rate (2,555 in 2026/27). Non-resident fees are priced in USD at this rate, so their USD is exact. Every other conversion uses the live Bank of Tanzania rate, and this value is only the last-resort fallback when no live or saved rate exists. |
 
 The full list, with notes, is in [`backend/.env.example`](backend/.env.example).
 
@@ -66,6 +66,8 @@ Run these from `backend/`:
 ```bash
 .venv/bin/python -m services.cli ask "Plan 3 days in Tarangire" --passport Germany --adults 2
 .venv/bin/python -m services.cli status      # when each source was last updated
+.venv/bin/python -m services.cli logistics   # refresh exchange rate, EWURA fuel prices and the hotel list (the server does this daily)
+.venv/bin/python -m services.cli budget serengeti --origin Mwanza --days 3 --adults 2 --passport Tanzania
 .venv/bin/python -m services.cli evaluate    # score the answers against a set of test questions
 .venv/bin/pytest                             # run the tests
 ```

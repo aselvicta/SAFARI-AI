@@ -197,7 +197,153 @@ function VisaBlock({ block, t }) {
   );
 }
 
-const RENDERERS = { fees: FeesBlock, parks: ParksBlock, estimate: EstimateBlock, visa: VisaBlock };
+const GROUPS = [
+  ["live", "groupLive", "groupLiveNote"],
+  ["official", "groupOfficial", "groupOfficialNote"],
+  ["estimate", "groupEstimate", "groupEstimateNote"],
+];
+
+function TripBudgetBlock({ block, t, lang }) {
+  const route = block.route || {};
+  const fx = block.fx || {};
+  return (
+    <section className="block block-budget" aria-label={t.budget}>
+      <header className="block-head">
+        <div>
+          <p className="eyebrow">{t.budget}</p>
+          <h4>{block.park_name}</h4>
+        </div>
+        <span className="badge">
+          {block.days} d · {block.people}
+        </span>
+      </header>
+      <p className="block-meta">
+        {format(t.budgetRoute, { from: block.origin, to: block.arrival?.name, km: formatNumber(route.km) })}
+        {route.hours ? format(t.budgetHours, { h: formatNumber(route.hours, 1) }) : ""}
+      </p>
+      {GROUPS.map(([key, title, note]) => {
+        const lines = (block.lines || []).filter((line) => line.group === key);
+        if (!lines.length) return null;
+        return (
+          <div className={`budget-group budget-${key}`} key={key}>
+            <h5>
+              <span className={`dot dot-${key}`} aria-hidden="true" />
+              {t[title]} <small>{t[note]}</small>
+            </h5>
+            <ul className="receipt">
+              {lines.map((line, index) => (
+                <li key={index}>
+                  <div className="receipt-label">
+                    <span>{line.label}</span>
+                    <small>{line.detail}</small>
+                  </div>
+                  <span className="receipt-amount">
+                    {formatNumber(line.total_tzs)}
+                    <Usd value={line.usd} t={t} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+      <ul className="receipt">
+        {block.buffer_tzs ? (
+          <li>
+            <div className="receipt-label">
+              <span>{format(t.buffer, { p: Math.round((block.buffer_rate || 0) * 100) })}</span>
+            </div>
+            <span className="receipt-amount">{formatNumber(block.buffer_tzs)}</span>
+          </li>
+        ) : null}
+        <li className="receipt-total">
+          <span>
+            {t.total}
+            <small className="per-person">
+              {" "}
+              TZS {formatNumber(block.per_person_tzs)} {t.perPerson}
+            </small>
+          </span>
+          <span className="receipt-amount">
+            <strong>TZS {formatNumber(block.total_tzs)}</strong>
+            <Usd value={block.total_usd} t={t} />
+            {block.currency ? (
+              <span className="usd">
+                {block.currency.code} {formatNumber(block.currency.total, 2)}
+              </span>
+            ) : null}
+          </span>
+        </li>
+      </ul>
+      <p className={`fx-line${fx.live ? "" : " is-stale"}`}>
+        {fx.live
+          ? format(t.fxLine, { rate: formatNumber(fx.usd, 2), date: formatDate(fx.date, lang) || fx.date })
+          : format(t.fxFallback, { source: fx.source })}
+      </p>
+      {block.hotels?.some((hotel) => hotel.usd_per_night) ? (
+        <div className="budget-hotels">
+          <p className="eyebrow">{t.hotelsFound}</p>
+          <ul>
+            {block.hotels
+              .filter((hotel) => hotel.usd_per_night)
+              .map((hotel) => (
+                <li key={hotel.key}>
+                  {hotel.url ? (
+                    <a href={hotel.url} target="_blank" rel="noopener noreferrer">
+                      {hotel.name}
+                    </a>
+                  ) : (
+                    hotel.name
+                  )}
+                  <span>
+                    {format(t.perNight, { n: formatNumber(hotel.usd_per_night) })}
+                    {hotel.km !== undefined && hotel.km !== null ? ` · ${formatNumber(hotel.km)} km` : ""}
+                  </span>
+                </li>
+              ))}
+          </ul>
+        </div>
+      ) : null}
+      {block.excluded?.length || block.notes?.length ? (
+        <div className="block-notes">
+          {block.excluded?.length ? (
+            <>
+              <p className="eyebrow">{t.excludes}</p>
+              <ul>
+                {block.excluded.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {block.notes?.length ? (
+            <ul>
+              {block.notes.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+      {block.sources?.length ? (
+        <p className="budget-sources">
+          {t.budgetSources}:{" "}
+          {block.sources.map((source, index) => (
+            <span key={source.key}>
+              {index ? " · " : ""}
+              <a href={source.url} target="_blank" rel="noopener noreferrer">
+                {source.title}
+              </a>
+              {source.live ? <em> ({t.live})</em> : null}
+            </span>
+          ))}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+const RENDERERS = { fees: FeesBlock, parks: ParksBlock, estimate: EstimateBlock, visa: VisaBlock, trip_budget: TripBudgetBlock };
 
 export default function Blocks({ blocks, t, lang, onAsk }) {
   if (!blocks?.length) return null;

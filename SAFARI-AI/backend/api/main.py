@@ -30,6 +30,8 @@ from services.common.typography import clean
 from services.engine import build_assistant
 from services.knowledge import parks as park_knowledge
 from services.knowledge import tariffs
+from services.logistics.budget import STAY, TRANSPORT, TripRequest
+from services.logistics.places import origin_names
 from services.planning.briefing import build_briefing
 from services.planning.pdf_brief import render_briefing_pdf
 
@@ -57,6 +59,20 @@ class BriefingRequest(BaseModel):
     child_ages: list[int] = Field(default_factory=list)
     passport: str = ""
     visitor_class: str = ""
+    as_of: date | None = None
+
+
+class TripBudgetRequest(BaseModel):
+    park: str = Field(min_length=1, max_length=80)
+    origin: str = Field(min_length=2, max_length=80)
+    days: int = Field(ge=1, le=30)
+    adults: int = Field(ge=1, le=40)
+    child_ages: list[int] = Field(default_factory=list, max_length=20)
+    passport: str = ""
+    visitor_class: str = ""
+    transport: str = Field(default="self_drive", pattern="^(self_drive|bus)$")
+    stay: str = Field(default="hotel", pattern="^(hotel|camping|none)$")
+    currency: str | None = Field(default=None, pattern="^[A-Za-z]{3}$")
     as_of: date | None = None
 
 
@@ -100,6 +116,13 @@ async def _refresh_loop(app: FastAPI, hours: float) -> None:
             started = time.perf_counter()
             report = await asyncio.to_thread(refresh_api, assistant.store, assistant.embedder)
             log_harvest(assistant.store, "api", "schedule", started, report)
+        logistics_status = {item["id"]: item for item in assistant.store.source_status()}.get("ewura_fuel", {})
+        if _age_hours(logistics_status.get("last_attempt")) >= 24:
+            log.info("refreshing logistics data (exchange rate, fuel prices, hotel list)")
+            try:
+                await asyncio.to_thread(assistant.logistics.refresh)
+            except Exception:
+                log.exception("logistics refresh failed")
         await asyncio.sleep(min(3600, hours * 3600 / 4))
 
 
@@ -224,7 +247,7 @@ def park(slug: str, as_of: date | None = None) -> dict:
     if card is None:
         raise HTTPException(status_code=404, detail="Unknown park")
     settings = app.state.assistant.settings
-    card["fees"] = tariffs.fee_block(store, slug, card["name"], as_of or date.today(), settings.tzs_per_usd)
+    card["fees"] = tariffs.fee_block(store, slug, card["name"], as_of or date.today(), settings.tzs_per_usd, fx=app.state.assistant.logistics.fx)
     card["fee_categories"] = tariffs.categories_for(store, slug)
     return card
 
@@ -235,10 +258,57 @@ def fees(park: str, category: str = "Entrance", as_of: date | None = None) -> di
     card = park_knowledge.get_card(store, park)
     if card is None:
         raise HTTPException(status_code=404, detail="Unknown park")
-    block = tariffs.fee_block(store, park, card["name"], as_of or date.today(), app.state.assistant.settings.tzs_per_usd, categories=(category,))
+    block = tariffs.fee_block(store, park, card["name"], as_of or date.today(), app.state.assistant.settings.tzs_per_usd, categories=(category,), fx=app.state.assistant.logistics.fx)
     if block is None:
         raise HTTPException(status_code=404, detail=f"No {category} fee in force on that date")
     return block
+
+
+@app.post("/v1/trip-budget")
+def trip_budget(body: TripBudgetRequest, request: Request) -> dict:
+    """Whole-trip budget from a Tanzanian town: live hotel rates and exchange rate, official fees, fuel
+    and bus fares, labelled by source. Rate limited like /v1/ask because it calls outside services."""
+    _limit(request)
+    assistant = app.state.assistant
+    store = assistant.store
+    from services.sources.tanapa_api import match_park
+
+    card = park_knowledge.get_card(store, match_park(body.park, store.list_parks()) or body.park.lower())
+    if card is None:
+        raise HTTPException(status_code=404, detail="Unknown park")
+    visitor, _reason = tariffs.visitor_class({"passport": body.passport, "visitor_class": body.visitor_class})
+    block = assistant.logistics.budget(
+        TripRequest(
+            park_slug=card["slug"],
+            park_name=card["name"],
+            origin=body.origin,
+            travel_date=body.as_of or date.today(),
+            days=body.days,
+            adults=body.adults,
+            child_ages=[age for age in body.child_ages if 0 <= age <= 17],
+            visitor=visitor,
+            transport=body.transport,
+            stay=body.stay,
+            currency=body.currency,
+        )
+    )
+    if block.get("error"):
+        raise HTTPException(status_code=422, detail=block)
+    return block
+
+
+@app.get("/v1/trip-budget/options")
+def trip_budget_options() -> dict:
+    return {"origins": origin_names(), "transport": list(TRANSPORT), "stay": list(STAY)}
+
+
+@app.get("/v1/fx")
+def exchange_rates(amount: float = 1.0, source: str = "USD", target: str = "TZS") -> dict:
+    """Today's Bank of Tanzania rate, e.g. /v1/fx?amount=100&source=EUR&target=TZS."""
+    result = app.state.assistant.logistics.fx.convert(amount, source, target)
+    if result.get("error"):
+        raise HTTPException(status_code=422, detail=result)
+    return result
 
 
 @app.post("/v1/briefing")

@@ -33,6 +33,19 @@ def main(argv: list[str] | None = None) -> None:
     harvest = commands.add_parser("harvest", help="Pull the TANAPA API, publications, and official pages")
     harvest.add_argument("--api-only", action="store_true", help="Only the TANAPA API (fees, parks, activities)")
     commands.add_parser("status", help="Show per-source sync status")
+    logistics = commands.add_parser("logistics", help="Refresh exchange rate, EWURA fuel prices and the hotel list")
+    logistics.add_argument("--force", action="store_true", help="Re-read the fuel notice and hotel list even if unchanged")
+    budget = commands.add_parser("budget", help="Trip budget from a town to a park")
+    budget.add_argument("park")
+    budget.add_argument("--origin", required=True)
+    budget.add_argument("--days", type=int, default=3)
+    budget.add_argument("--adults", type=int, default=2)
+    budget.add_argument("--child-ages", dest="child_ages", default="")
+    budget.add_argument("--passport", default="")
+    budget.add_argument("--transport", choices=["self_drive", "bus"], default="self_drive")
+    budget.add_argument("--stay", choices=["hotel", "camping", "none"], default="hotel")
+    budget.add_argument("--currency", default=None)
+    budget.add_argument("--as-of", dest="as_of", default=None)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -79,6 +92,30 @@ def main(argv: list[str] | None = None) -> None:
             print(json.dumps(refresh_api(assistant.store, assistant.embedder), indent=2))
         else:
             print(json.dumps(harvest(assistant.store, assistant.embedder), indent=2, default=str))
+        return
+    if args.command == "logistics":
+        print(json.dumps(assistant.logistics.refresh(force=args.force), indent=2))
+        return
+    if args.command == "budget":
+        from services.knowledge import tariffs
+        from services.knowledge.parks import get_card
+        from services.logistics.budget import TripRequest
+        from services.sources.tanapa_api import match_park
+
+        card = get_card(assistant.store, match_park(args.park, assistant.store.list_parks()) or args.park)
+        if card is None:
+            raise SystemExit(f"unknown park: {args.park}")
+        visitor, _reason = tariffs.visitor_class({"passport": args.passport})
+        block = assistant.logistics.budget(
+            TripRequest(
+                park_slug=card["slug"], park_name=card["name"], origin=args.origin,
+                travel_date=date.fromisoformat(args.as_of) if args.as_of else date.today(),
+                days=args.days, adults=args.adults,
+                child_ages=[int(item) for item in args.child_ages.split(",") if item.strip().isdigit()],
+                visitor=visitor, transport=args.transport, stay=args.stay, currency=args.currency,
+            )
+        )
+        print(json.dumps(block, indent=2, ensure_ascii=False))
         return
     if args.command == "status":
         print(json.dumps(assistant.store.source_status(), indent=2))

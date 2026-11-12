@@ -11,6 +11,8 @@ import re
 from services.agent.tools import Toolbox
 from services.conversation.understand import UnderstoodQuery
 from services.knowledge import tariffs
+from services.logistics.fx import fee_usd
+from services.logistics.places import find_origin
 from services.sources.tanapa_api import TARIFF_PAGE
 
 NCAA_URL = "https://www.ncaa.go.tz/about-ncaa/"
@@ -53,6 +55,12 @@ def _fee(query, tools):
             lines.append(result["note"] + f" [{result['cite']}]")
             continue
         lines.append(_fee_summary(result, tools, sw))
+        origin = _origin(query)
+        if party and origin and result["category"] == "Entrance" and slug == query.park_slugs[0]:
+            budget = tools.call("plan_trip_budget", {"park": slug, "origin": origin, **party})
+            if not budget.get("error"):
+                lines.append(_budget_sentence(budget, sw))
+                continue
         if party and (result["category"] == "Entrance"):
             estimate = tools.call("estimate_trip_cost", {"park": slug, **party})
             if not estimate.get("error"):
@@ -88,7 +96,7 @@ def _fee_overview(query, tools):
         if sw
         else f"Adult park entry per person per 24 hours ({label}), in force on {tools.as_of.isoformat()} [{cite}]:"
     )
-    body = "\n".join(f"- **{name}**: TZS {_money(amount)} (≈ USD {_money(amount / tools.settings.tzs_per_usd)})" for amount, name in rows)
+    body = "\n".join(f"- **{name}**: TZS {_money(amount)} (≈ USD {_money(fee_usd(amount, visitor, tools._fx, tools.settings.tzs_per_usd)[0])})" for amount, name in rows)
     tail = "Tell me the park for the full table, child rates and camping." if not sw else "Niambie hifadhi upate jedwali kamili."
     return {"answer": f"{head}\n\n{body}\n\n{tail}", "abstained": False, "limits": []}
 
@@ -118,7 +126,13 @@ def _planning(query, tools):
                     else f"Ngorongoro Conservation Area is managed by the Ngorongoro Conservation Area Authority (NCAA), not TANAPA: {NCAA_URL}"
                 )
     party = _party(query, tools)
+    origin = _origin(query)
     for slug in (query.park_slugs or [item["slug"] for item in tools.recommended])[:1]:
+        if party and origin:
+            budget = tools.call("plan_trip_budget", {"park": slug, "origin": origin, **party})
+            if not budget.get("error"):
+                parts.append(_budget_sentence(budget, sw))
+                continue
         if party:
             estimate = tools.call("estimate_trip_cost", {"park": slug, **party})
             if not estimate.get("error"):
@@ -356,7 +370,7 @@ def _fee_summary(result: dict, tools: Toolbox, sw: bool) -> str:
         if sw
         else f"**{result['park']}: {result['category']}** for {wanted}, in force on {result['travel_date']} [{result['cite']}]:"
     )
-    lines = [f"- {row['item']}: TZS {_money(row['tzs'])} (≈ USD {_money(row['usd_approx'])})" + (f", {row['season'].lower()} season" if row["season"].lower() not in {"all"} else "") for row in shown]
+    lines = [f"- {row['item']}: TZS {_money(row['tzs'])} (≈ USD {_money(row['usd'])})" + (f", {row['season'].lower()} season" if row["season"].lower() not in {"all"} else "") for row in shown]
     valid = shown[0]["valid"] if shown else ""
     tail = f"Valid {valid}. The full table for every visitor class is below." if not sw else f"Inatumika {valid.replace(' to ', ' hadi ')}. Jedwali kamili liko chini."
     return head + "\n" + "\n".join(lines) + "\n\n" + tail
@@ -372,8 +386,36 @@ def _estimate_sentence(estimate: dict, sw: bool) -> str:
         if sw
         else f"**Park entry for your group at {estimate['park']}** ({estimate['visitor_class']}, {estimate['days']} days) [{estimate['cite']}]:"
     )
-    total = f"**Total: TZS {_money(estimate['total_tzs'])}** (≈ USD {_money(estimate['total_usd_approx'])})."
+    total = f"**Total: TZS {_money(estimate['total_tzs'])}** (≈ USD {_money(estimate['total_usd'])})."
     return f"{head}\n{lines}\n\n{total} " + ("Haijumuishi gari, malazi, wala shughuli." if sw else "Vehicle entry, accommodation and activities are extra.")
+
+
+def _origin(query) -> str | None:
+    """A known starting town from the trip details or the question ("from Mwanza")."""
+    place = find_origin(query.origin) if query.origin else None
+    place = place or find_origin(query.raw, after_from=True)
+    return place.name if place else None
+
+
+def _budget_sentence(budget: dict, sw: bool) -> str:
+    groups = {"live": "live" if not sw else "bei za sasa", "official": "official" if not sw else "rasmi", "estimate": "estimate" if not sw else "makadirio"}
+    lines = "\n".join(
+        f"- {line['item']} ({groups[line['group']]}): TZS {_money(line['tzs'])}" + (f" [{line['cite']}]" if line.get("cite") else "")
+        for line in budget["lines"]
+    )
+    route = f"{budget['road_km_one_way']:,.0f} km" + (f", about {budget['driving_hours_one_way']:g} h" if budget.get("driving_hours_one_way") else "")
+    head = (
+        f"**Bajeti ya safari kutoka {budget['from']} hadi {budget['park']}** ({route} kwa njia moja):"
+        if sw
+        else f"**Trip budget from {budget['from']} to {budget['park']}** ({route} one way):"
+    )
+    total = (
+        f"**Jumla: TZS {_money(budget['total_tzs'])}** (≈ USD {_money(budget['total_usd'])}), pamoja na akiba ya TZS {_money(budget['buffer_tzs'])}. {budget['exchange_rate']} [{budget['exchange_rate_cite']}]."
+        if sw
+        else f"**Total: TZS {_money(budget['total_tzs'])}** (≈ USD {_money(budget['total_usd'])}), including a TZS {_money(budget['buffer_tzs'])} buffer for price changes. {budget['exchange_rate']} [{budget['exchange_rate_cite']}]."
+    )
+    missing = ("Haijumuishi: " if sw else "Not included: ") + "; ".join(budget["not_included"]) + "."
+    return f"{head}\n{lines}\n\n{total}\n\n{missing}"
 
 
 def _visa_sentence(visa: dict, sw: bool) -> str:

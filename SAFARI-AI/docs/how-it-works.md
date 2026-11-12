@@ -24,6 +24,20 @@ Most of it comes from TANAPA's website, which has a public data feed with every 
 
 The fees and park pages are fetched again every 12 hours. If a source can't be reached, the last good copy stays in use, and the admin dashboard shows the problem.
 
+## Trip budgets from anywhere in Tanzania
+
+When a visitor says where they start (Dar es Salaam, Mwanza, Mbeya and about 30 other towns), SafariAI can cost the whole trip, not just park entry. Every line says where its number comes from:
+
+- **Live:** hotel rates near the park gate for the travel dates, from booking sites via Xotelo, and today's Bank of Tanzania exchange rate. That rate comes from Driftmark's feed, or straight from the bank's own page when the feed is down.
+- **Official:** TANAPA park and vehicle fees, EWURA's monthly fuel cap price for the visitor's town (about 190 towns), and LATRA's per-kilometre bus fare cap.
+- **Estimate:** only the fuel a car uses (road distance from OpenStreetMap × 12 litres per 100 km).
+
+A 10% buffer is added on the live and estimated lines, because those prices move. Costs that have no reliable source, such as safari vehicle hire, food, NCAA transit fees or the boat to Gombe, are listed as not included instead of being guessed.
+
+USD amounts for non-resident fees are TANAPA's own USD prices (TANAPA bills them at 2,555 TZS per USD). Every other conversion uses the live Bank of Tanzania rate.
+
+The exchange rate is refreshed hourly. Fuel prices and the hotel list are checked daily and weekly, and hotel rates are fetched when someone asks, then kept for six hours.
+
 ## How search works
 
 To find the right passage in hundreds of pages of documents, SafariAI scores every passage in two ways: how many of the question's words it contains, and how similar its wording is overall. It then gives extra weight to official sources and to documents that are currently in force, so an old tariff never beats the current one. Only the best few passages from each document are passed to the AI model, so one long PDF can't crowd out everything else.

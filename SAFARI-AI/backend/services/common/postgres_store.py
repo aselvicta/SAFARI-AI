@@ -77,11 +77,11 @@ class PostgresStore:
     def replace_records(self, kind: str, records: list[Record]) -> None:
         with self.conn.transaction(), self.conn.cursor() as cursor:
             cursor.execute("DELETE FROM records WHERE kind = %s", (kind,))
-            for record in records:
-                cursor.execute(
-                    "INSERT INTO records (kind, key, payload, source_id, source_url, retrieved_at) VALUES (%s, %s, %s, %s, %s, %s)",
-                    (kind, record.key, json.dumps(record.payload), record.source_id, record.source_url, record.retrieved_at),
-                )
+            # One pipelined batch: the weekly hotel list is ~3,000 rows.
+            cursor.executemany(
+                "INSERT INTO records (kind, key, payload, source_id, source_url, retrieved_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                [(kind, record.key, json.dumps(record.payload), record.source_id, record.source_url, record.retrieved_at) for record in records],
+            )
         self._changed()
 
     def list_records(self, kind: str) -> list[Record]:

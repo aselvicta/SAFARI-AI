@@ -1,7 +1,9 @@
 """Official TANAPA fee rows: lookup by park, visitor class, age and date, and a trip estimate.
 
 Only rows whose validity window covers the travel date are returned. Amounts are the
-official TZS figures; the USD figure is an approximation at `tzs_per_usd` and is labelled so.
+official TZS figures. Non-resident, expatriate and foreign-vehicle rows are priced in USD by TANAPA and
+billed at its fixed rate (`tzs_per_usd`, 2,555 in 2026/27), so their USD is exact. Other rows are converted
+at the live Bank of Tanzania rate when `fx` is given.
 """
 
 from __future__ import annotations
@@ -9,6 +11,7 @@ from __future__ import annotations
 from datetime import date
 
 from services.common.text import parse_date
+from services.logistics.fx import fee_usd
 from services.sources.tanapa_api import AGE_LABELS, TARIFF_PAGE, VISITOR_LABELS
 
 EAC_COUNTRIES = {
@@ -66,7 +69,7 @@ def has_tariffs(store) -> bool:
     return bool(store.list_records("tariff"))
 
 
-def fee_block(store, park_slug: str, park_name: str, as_of: date, tzs_per_usd: float, *, categories: tuple[str, ...] = (ENTRANCE,), visitors: tuple[str, ...] | None = None) -> dict | None:
+def fee_block(store, park_slug: str, park_name: str, as_of: date, tzs_per_usd: float, *, categories: tuple[str, ...] = (ENTRANCE,), visitors: tuple[str, ...] | None = None, fx=None) -> dict | None:
     rows = in_force_rows(store, park_slug, as_of, categories=categories, visitors=visitors)
     if not rows:
         return None
@@ -79,7 +82,7 @@ def fee_block(store, park_slug: str, park_name: str, as_of: date, tzs_per_usd: f
         "valid_from": min(start for start, _end in windows if start) if any(start for start, _end in windows) else None,
         "valid_until": max(end for _start, end in windows if end) if any(end for _start, end in windows) else None,
         "in_force": True,
-        "rows": [_block_row(row, tzs_per_usd) for row in rows],
+        "rows": [_block_row(row, tzs_per_usd, fx) for row in rows],
         "notes": fee_notes(store),
         "source_url": TARIFF_PAGE,
     }
@@ -96,7 +99,7 @@ def fee_faq(store) -> list[dict]:
     return [record.payload for record in store.list_records("fee_note") if record.payload.get("kind") == "faq"]
 
 
-def estimate(store, park_slug: str, park_name: str, as_of: date, tzs_per_usd: float, *, days: int, adults: int, child_ages: list[int], visitor: str) -> dict | None:
+def estimate(store, park_slug: str, park_name: str, as_of: date, tzs_per_usd: float, *, days: int, adults: int, child_ages: list[int], visitor: str, fx=None) -> dict | None:
     """Conservation (entrance) fees for the party. Everything else is listed as excluded."""
     rows = in_force_rows(store, park_slug, as_of, categories=(ENTRANCE,), visitors=(visitor,))
     adult_row = next((row for row in rows if row["age"] == "adult" and row["visitor"] == visitor), None)
@@ -128,7 +131,8 @@ def estimate(store, park_slug: str, park_name: str, as_of: date, tzs_per_usd: fl
         "visitor_label": VISITOR_LABELS[visitor],
         "lines": lines,
         "total_tzs": total,
-        "total_usd": round(total / tzs_per_usd, 2) if tzs_per_usd else None,
+        "total_usd": fee_usd(total, visitor, fx, tzs_per_usd)[0],
+        "usd_basis": fee_usd(total, visitor, fx, tzs_per_usd)[1],
         "valid_from": adult_row.get("valid_from"),
         "valid_until": adult_row.get("valid_until"),
         "excludes": [
@@ -145,7 +149,7 @@ def _line(label: str, qty: int, days: int, unit: float) -> dict:
     return {"label": label, "qty": qty, "days": days, "unit_tzs": unit, "total_tzs": unit * qty * days}
 
 
-def _block_row(row: dict, tzs_per_usd: float) -> dict:
+def _block_row(row: dict, tzs_per_usd: float, fx=None) -> dict:
     return {
         "category": row["category"],
         "item": row["item"],
@@ -158,7 +162,8 @@ def _block_row(row: dict, tzs_per_usd: float) -> dict:
         "valid_until": row.get("valid_until"),
         "unit": row.get("unit"),
         "amount_tzs": row["amount"],
-        "amount_usd": round(row["amount"] / tzs_per_usd, 2) if tzs_per_usd and row["currency"] == "TZS" else None,
+        "amount_usd": fee_usd(row["amount"], row["visitor"], fx, tzs_per_usd)[0] if row["currency"] == "TZS" else None,
+        "usd_basis": fee_usd(row["amount"], row["visitor"], fx, tzs_per_usd)[1] if row["currency"] == "TZS" else None,
     }
 
 

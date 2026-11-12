@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable
 
+from services.agent import attribution
 from services.agent.prompts import system_prompt
 from services.agent.tools import TOOL_SCHEMAS, Toolbox
 from services.common.settings import Settings
@@ -26,6 +28,7 @@ STATUS = {
 
 _NUMBER = re.compile(r"(?<![\w\[])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?![\w\]])")
 _CITE = re.compile(r"\[(\d{1,2})\]")
+log = logging.getLogger("safari.agent")
 _STATUS = re.compile(r"\[\[\s*(answered|not_found|out_of_scope)\s*\]\]", re.IGNORECASE)
 
 
@@ -125,10 +128,14 @@ def run_agent(question: str, history: list[dict], tools: Toolbox, settings: Sett
         # An answer drawn from tool results must cite one. (Small talk or a clarifying question uses no tool, so
         # there is nothing to cite; the figures check still applies to it.)
         uncited = status == "answered" and bool(tools.citations) and not cites_a_source(text, tools)
-        if (problems or uncited) and not retried:
+        # Each cited figure must come from the source cited next to it, not just from some tool result.
+        facts = attribution.collect(tools.results)
+        miscited = attribution.check(text, facts)
+        if (problems or uncited or miscited) and not retried:
             retried = True
             emit("reset", {})
             emit("status", {"label": "Double-checking figures" if problems else "Checking sources"})
+            log.info("agent draft rejected: figures=%s uncited=%s miscited=%d", problems, uncited, len(miscited))
             messages.append({"role": "assistant", "content": turn.content})
             issues = []
             if problems:
@@ -137,6 +144,12 @@ def run_agent(question: str, history: list[dict], tools: Toolbox, settings: Sett
                 issues.append(
                     "the answer cites no source. Every factual sentence needs the [n] cite number of the tool result it comes from; "
                     "call a tool first if you have no result for it, and if the tools don't answer the question, end with [[not_found]]"
+                )
+            if miscited:
+                issues.append(
+                    "some cite numbers point to the wrong source: "
+                    + attribution.describe(miscited, tools.citations)
+                    + ". Put each figure next to the cite number of the tool item it came from; give totals and planning notes no cite"
                 )
             messages.append(
                 {
@@ -153,6 +166,9 @@ def run_agent(question: str, history: list[dict], tools: Toolbox, settings: Sett
             raise Ungrounded(", ".join(problems), "figures")
         if uncited:
             raise Ungrounded("no source cited", "citations")
+        if miscited:
+            log.warning("repairing %d miscited segment(s) after the retry", len(miscited))
+            text = attribution.repair(text, facts)
         return clean_dashes(clean_citations(text, tools)), status
     raise LLMError("the agent did not finish within the round limit", "round_limit")
 

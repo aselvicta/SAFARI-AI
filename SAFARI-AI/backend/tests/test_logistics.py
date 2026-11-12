@@ -190,3 +190,92 @@ def test_bank_of_tanzania_page_is_the_fallback_when_the_feed_refuses():
     assert snap["date"] == "2026-11-12" and snap["rates"] == {"EUR": 2940.6496, "USD": 2643.5182}
     with pytest.raises(RuntimeError):
         fx_module._read_feed(Client(), "now")
+
+
+def _budget_result(assistant, monkeypatch):
+    from services.agent.tools import Toolbox
+
+    _seed_logistics(assistant.store)
+    _fake_rates(monkeypatch, {"h1": 40.0, "h2": 60.0, "h3": 100.0})
+    tools = Toolbox(assistant.store, assistant.index, assistant.settings, TRAVEL, {"passport": "Kenya"}, logistics=assistant.logistics)
+    result = tools.tool_plan_trip_budget(park="mikumi", origin="Dar es Salaam", days=3, adults=2)
+    tools.results.append(result)
+    return tools, result
+
+
+def _line(result, group):
+    return next(line for line in result["lines"] if line["group"] == group)
+
+
+def test_each_budget_item_carries_its_own_source(assistant, monkeypatch):
+    tools, result = _budget_result(assistant, monkeypatch)
+    titles = {citation["n"]: citation["organization"] for citation in tools.citations}
+    assert titles[result["route"]["cite"]] == "OpenStreetMap"
+    assert titles[result["exchange_rate"]["cite"]] == "Bank of Tanzania"
+    assert titles[_line(result, "estimate")["cite"]] == "EWURA"
+    assert titles[_line(result, "live")["cite"]] == "Xotelo"
+    assert result["totals"]["derived"] is True and "cite" not in result["totals"]
+
+
+def test_attribution_accepts_correct_cites_and_catches_wrong_ones(assistant, monkeypatch):
+    from services.agent import attribution
+
+    tools, result = _budget_result(assistant, monkeypatch)
+    facts = attribution.collect(tools.results)
+    fuel_line, hotel = _line(result, "estimate"), _line(result, "live")
+    rate, route, totals = result["exchange_rate"], result["route"], result["totals"]
+    good = (
+        f"**Total: TZS {totals['total_tzs']:,}** (USD {totals['total_usd']:,}) [{hotel['cite']}].\n"
+        f"- Fuel: TZS {fuel_line['tzs']:,} [{fuel_line['cite']}]\n"
+        f"- Hotel: TZS {hotel['tzs']:,} [{hotel['cite']}]\n"
+        f"- 1 USD = {rate['usd_in_tzs']:,} TZS [{rate['cite']}]\n"
+        f"The drive is {route['road_km_one_way']:g} km [{route['cite']}]. Not included: food and drinks."
+    )
+    assert attribution.check(good, facts) == []
+
+    wrong = (
+        f"- Fuel: TZS {fuel_line['tzs']:,} [{route['cite']}]\n"
+        f"- 1 USD = {rate['usd_in_tzs']:,} TZS [{fuel_line['cite']}]\n"
+        f"Not included: food and drinks, guide, cook and tips [{rate['cite']}]."
+    )
+    problems = attribution.check(wrong, facts)
+    assert len(problems) == 3
+    fixed = attribution.repair(wrong, facts)
+    assert f"TZS {fuel_line['tzs']:,} [{fuel_line['cite']}]" in fixed
+    assert f"{rate['usd_in_tzs']:,} TZS [{rate['cite']}]" in fixed
+    assert fixed.rstrip().endswith("tips.") and attribution.check(fixed, facts) == []
+
+
+def test_agent_rewrites_then_repairs_miscited_answers(monkeypatch):
+    import json
+    from dataclasses import replace
+
+    from services.agent import runner
+    from services.generation.llm import ToolCall, Turn
+
+    from conftest import build_assistant
+
+    assistant = build_assistant()
+    assistant.settings = replace(assistant.settings, llm_api_key="test-key", llm_base_url="http://llm.test")
+    tools, result = _budget_result(assistant, monkeypatch)
+    fuel_line, rate = _line(result, "estimate"), result["exchange_rate"]
+    miscited = Turn(content=f"Fuel comes to TZS {fuel_line['tzs']:,} [{rate['cite']}].\n[[answered]]")
+    queue = [
+        Turn(tool_calls=[ToolCall(id="c1", name="plan_trip_budget", arguments=json.dumps({"park": "mikumi", "origin": "Dar es Salaam", "days": 3, "adults": 2}))]),
+        miscited,
+        miscited,
+    ]
+    seen = []
+
+    def stream_turn(settings, messages, tools=None, **_):
+        seen.append(messages)
+        turn = queue.pop(0)
+        if turn.content:
+            yield turn.content
+        yield turn
+
+    monkeypatch.setattr(runner, "stream_turn", stream_turn)
+    answer = assistant.ask("Cost from Dar to Mikumi for 3 days, 2 adults?", as_of=TRAVEL, profile={"passport": "Kenya"})
+    assert answer["generator"] == "agent"
+    assert any("wrong source" in message["content"] for message in seen[-1] if message["role"] == "system")
+    assert f"TZS {fuel_line['tzs']:,} [{fuel_line['cite']}]" in answer["answer"]

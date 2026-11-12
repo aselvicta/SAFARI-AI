@@ -116,13 +116,12 @@ async def _refresh_loop(app: FastAPI, hours: float) -> None:
             started = time.perf_counter()
             report = await asyncio.to_thread(refresh_api, assistant.store, assistant.embedder)
             log_harvest(assistant.store, "api", "schedule", started, report)
-        logistics_status = {item["id"]: item for item in assistant.store.source_status()}.get("ewura_fuel", {})
-        if _age_hours(logistics_status.get("last_attempt")) >= 24:
-            log.info("refreshing logistics data (exchange rate, fuel prices, hotel list)")
-            try:
-                await asyncio.to_thread(assistant.logistics.refresh)
-            except Exception:
-                log.exception("logistics refresh failed")
+        try:
+            report = await asyncio.to_thread(assistant.logistics.refresh_due)
+            if report:
+                log.info("logistics refresh: %s", {key: value.get("status") for key, value in report.items()})
+        except Exception:
+            log.exception("logistics refresh failed")
         await asyncio.sleep(min(3600, hours * 3600 / 4))
 
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from services.knowledge import tariffs
@@ -67,6 +67,19 @@ class Logistics:
     def refresh(self, *, force: bool = False) -> dict:
         report = {"fx": self.fx.refresh(), "fuel": fuel.refresh(self.store, force=force)}
         if force or hotels.directory_age_days(self.store) >= 7:
+            report["hotels"] = hotels.refresh_directory(self.store)
+        return report
+
+    def refresh_due(self) -> dict:
+        """What the hourly server loop runs: fuel daily, the hotel list weekly, and either one again
+        after an hour when its last attempt failed (so one bad fetch doesn't leave a day-long gap)."""
+        status = {item["id"]: item for item in self.store.source_status()}
+        report = {}
+        fuel_status = status.get(fuel.SOURCE_ID, {})
+        if _hours_since(fuel_status.get("last_attempt")) >= (1 if fuel_status.get("status") == "error" else 24):
+            report["fuel"] = fuel.refresh(self.store)
+        hotel_status = status.get(hotels.SOURCE_ID, {})
+        if hotels.directory_age_days(self.store) >= 7 and _hours_since(hotel_status.get("last_attempt")) >= 1:
             report["hotels"] = hotels.refresh_directory(self.store)
         return report
 
@@ -228,7 +241,10 @@ class _Builder:
             if len(priced) >= 3:
                 break
         if not found:
-            self.excluded.append("Accommodation (no listed hotels near the park; check the park's own bandas and campsites)")
+            if not self.lx.store.count_records(hotels.RECORD_KIND):
+                self.excluded.append("Accommodation (the hotel list has not loaded yet; try again shortly)")
+            else:
+                self.excluded.append("Accommodation (no listed hotels near the park; check the park's own bandas and campsites)")
             return
         if not priced:
             self.excluded.append("Accommodation (booking sites returned no rates for these dates)")
@@ -312,6 +328,15 @@ class _Builder:
         rows = tariffs.in_force_rows(self.lx.store, self.req.park_slug, self.req.travel_date, categories=(category,), visitors=(visitor,))
         wanted = item_prefix.lower()
         return next((row for row in rows if row["visitor"] == visitor and row["item"].lower().startswith(wanted)), None)
+
+
+def _hours_since(stamp: str | None) -> float:
+    if not stamp:
+        return float("inf")
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(stamp)).total_seconds() / 3600
+    except ValueError:
+        return float("inf")
 
 
 def _n(value: float) -> str:

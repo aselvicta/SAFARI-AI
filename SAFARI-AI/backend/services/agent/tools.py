@@ -158,6 +158,7 @@ class Toolbox:
         self.evidence: list[str] = []
         self.recommended: list[dict] = []
         self.calls: list[dict] = []
+        self.results: list[dict] = []
         self.best_retrieval: float = 0.0
         self.structured_hit = False
 
@@ -173,6 +174,7 @@ class Toolbox:
             except TypeError as exc:
                 result = {"error": f"bad arguments: {exc}"}
         self.calls.append({"name": name, "arguments": arguments})
+        self.results.append(result)
         self.evidence.append(json.dumps(result, ensure_ascii=False))
         return result
 
@@ -382,28 +384,46 @@ class Toolbox:
         self.structured_hit = True
         self._add_block(block)
         cites = {source["key"]: self._cite_source(source) for source in block["sources"]}
+        fx = block["fx"]
         return {
             "park": name,
-            "from": block["origin"],
-            "to": f"{block['arrival']['name']} ({block['arrival']['label']})",
-            "road_km_one_way": block["route"]["km"],
-            "driving_hours_one_way": block["route"]["hours"],
             "visitor_class": tariffs.VISITOR_LABELS[chosen],
             "visitor_class_reason": reason,
+            "how_to_cite": (
+                "Each item below carries the cite number of its own source: cite that number next to its figures and no other. "
+                "'totals' is SafariAI's arithmetic over the lines: give it no cite of its own. "
+                "'not_included' and 'notes' are SafariAI's planning notes: never put a cite on them."
+            ),
+            "route": {
+                "from": block["origin"],
+                "to": f"{block['arrival']['name']} ({block['arrival']['label']})",
+                "road_km_one_way": block["route"]["km"],
+                "driving_hours_one_way": block["route"]["hours"],
+                "cite": cites.get("route"),
+            },
             "lines": [
                 {"group": line["group"], "item": line["label"], "how": line["detail"], "tzs": line["total_tzs"], "usd": line["usd"], "cite": cites.get(line["source"])}
                 for line in block["lines"]
             ],
-            "subtotals_tzs": block["groups"],
-            "buffer_tzs": block["buffer_tzs"],
-            "total_tzs": block["total_tzs"],
-            "total_usd": block["total_usd"],
-            "per_person_tzs": block["per_person_tzs"],
-            **({"total_in_" + block["currency"]["code"]: block["currency"]["total"]} if block.get("currency") else {}),
-            "exchange_rate": f"1 USD = {block['fx']['usd']:,.2f} TZS ({block['fx']['source']}, {block['fx']['date']})",
-            "exchange_rate_cite": cites.get("fx"),
+            "exchange_rate": {
+                "usd_in_tzs": fx["usd"],
+                "date": fx["date"],
+                "live": fx["live"],
+                "text": f"1 USD = {fx['usd']:,.2f} TZS ({fx['source']}, {fx['date']})",
+                "cite": cites.get("fx"),
+            },
+            "totals": {
+                "derived": True,
+                "subtotals_tzs": block["groups"],
+                "buffer_tzs": block["buffer_tzs"],
+                "buffer_percent": round(block["buffer_rate"] * 100),
+                "total_tzs": block["total_tzs"],
+                "total_usd": block["total_usd"],
+                "per_person_tzs": block["per_person_tzs"],
+                **({"total_in_" + block["currency"]["code"]: block["currency"]["total"]} if block.get("currency") else {}),
+            },
             "cheapest_hotels": [
-                {"name": item["name"], "usd_per_night": item.get("usd_per_night"), "km_from_arrival": item.get("km"), "rating": item.get("rating")}
+                {"name": item["name"], "usd_per_night": item.get("usd_per_night"), "km_from_arrival": item.get("km"), "rating": item.get("rating"), "cite": cites.get("hotels")}
                 for item in block["hotels"][:3]
             ],
             "not_included": block["excluded"],

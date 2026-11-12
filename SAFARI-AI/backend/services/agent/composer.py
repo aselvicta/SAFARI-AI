@@ -403,16 +403,19 @@ def _budget_sentence(budget: dict, sw: bool) -> str:
         f"- {line['item']} ({groups[line['group']]}): TZS {_money(line['tzs'])}" + (f" [{line['cite']}]" if line.get("cite") else "")
         for line in budget["lines"]
     )
-    route = f"{budget['road_km_one_way']:,.0f} km" + (f", about {budget['driving_hours_one_way']:g} h" if budget.get("driving_hours_one_way") else "")
+    trip = budget["route"]
+    route = f"{trip['road_km_one_way']:,.0f} km" + (f", about {trip['driving_hours_one_way']:g} h" if trip.get("driving_hours_one_way") else "") + (f" [{trip['cite']}]" if trip.get("cite") else "")
     head = (
-        f"**Bajeti ya safari kutoka {budget['from']} hadi {budget['park']}** ({route} kwa njia moja):"
+        f"**Bajeti ya safari kutoka {trip['from']} hadi {budget['park']}** ({route} kwa njia moja):"
         if sw
-        else f"**Trip budget from {budget['from']} to {budget['park']}** ({route} one way):"
+        else f"**Trip budget from {trip['from']} to {budget['park']}** ({route} one way):"
     )
+    totals, rate = budget["totals"], budget["exchange_rate"]
+    rate_text = rate["text"] + (f" [{rate['cite']}]" if rate.get("cite") else "")
     total = (
-        f"**Jumla: TZS {_money(budget['total_tzs'])}** (≈ USD {_money(budget['total_usd'])}), pamoja na akiba ya TZS {_money(budget['buffer_tzs'])}. {budget['exchange_rate']} [{budget['exchange_rate_cite']}]."
+        f"**Jumla: TZS {_money(totals['total_tzs'])}** (USD {_money(totals['total_usd'])}), pamoja na akiba ya TZS {_money(totals['buffer_tzs'])}.\n\n{rate_text}."
         if sw
-        else f"**Total: TZS {_money(budget['total_tzs'])}** (≈ USD {_money(budget['total_usd'])}), including a TZS {_money(budget['buffer_tzs'])} buffer for price changes. {budget['exchange_rate']} [{budget['exchange_rate_cite']}]."
+        else f"**Total: TZS {_money(totals['total_tzs'])}** (USD {_money(totals['total_usd'])}), including a TZS {_money(totals['buffer_tzs'])} buffer for price changes.\n\n{rate_text}."
     )
     missing = ("Haijumuishi: " if sw else "Not included: ") + "; ".join(budget["not_included"]) + "."
     return f"{head}\n{lines}\n\n{total}\n\n{missing}"

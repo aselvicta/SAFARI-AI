@@ -83,6 +83,6 @@ Installation, settings and deployment are in the [technical guide](SAFARI-AI/REA
 
 <div align="center">
 
-Made with ❤️ by [aselvicta](https://github.com/aselvicta) for Tanzania's national parks and everyone on their way to see them.
+Developed by [aselvicta](https://github.com/aselvicta) for Tanzania's national parks and everyone on their way to see them.
 
 </div>
